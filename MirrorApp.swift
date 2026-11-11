@@ -1,8 +1,8 @@
 import SwiftUI
 import ReplayKit
 import Network
-import Combine
 
+// Indirizzo IP dell'iPhone sul Wi-Fi (o sull'hotspot)
 func localIPAddress() -> String? {
     var found: String?
     var ifaddr: UnsafeMutablePointer<ifaddrs>?
@@ -27,6 +27,7 @@ func localIPAddress() -> String? {
     return found
 }
 
+// Forza iOS a mostrare il popup "Consenti rete locale" all'apertura dell'app
 class LocalNetworkTrigger: ObservableObject {
     private var browser: NWBrowser?
 
@@ -42,16 +43,77 @@ class LocalNetworkTrigger: ObservableObject {
     }
 }
 
-struct BilingualLabel: View {
+// Modello stato sincronizzato con il player web
+class RemoteState: ObservableObject {
+    @Published var isBroadcasting = false
+    @Published var resolution = "1280"
+    @Published var fps = "30"
+    @Published var fitMode = "contain"
+    @Published var rotation = 0
+    @Published var speed = "1.0"
+    @Published var audioActive = false
+    @Published var fullscreenTrigger = 0
+
+    private var timer: Timer?
+
+    func startMonitoring() {
+        checkBroadcast()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkBroadcast()
+        }
+    }
+
+    func stopMonitoring() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func checkBroadcast() {
+        let captured = UIScreen.main.isCaptured
+        DispatchQueue.main.async {
+            if self.isBroadcasting != captured {
+                self.isBroadcasting = captured
+            }
+            if captured {
+                self.fetchStateFromServer()
+            }
+        }
+    }
+
+    func fetchStateFromServer() {
+        guard let url = URL(string: "http://127.0.0.1:8080/state") else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                if let res = json["res"] as? String { self.resolution = res }
+                if let fps = json["fps"] as? String { self.fps = fps }
+                if let fit = json["fit"] as? String { self.fitMode = fit }
+                if let rot = json["rot"] as? Int { self.rotation = rot }
+                if let spd = json["spd"] as? String { self.speed = spd }
+                if let aud = json["aud"] as? Bool { self.audioActive = aud }
+            }
+        }.resume()
+    }
+
+    func sendCommand(_ query: String) {
+        guard let url = URL(string: "http://127.0.0.1:8080/config?\(query)") else { return }
+        URLSession.shared.dataTask(with: url) { _, _, _ in }.resume()
+    }
+}
+
+// Vista Testo Bilingue (Italiano + Inglese più piccolo)
+struct BilingualText: View {
     let it: String
     let en: String
-    var itFont: Font = .body
+    var itFont: Font = .subheadline
     var enFont: Font = .caption2
     var itColor: Color = .primary
     var enColor: Color = .secondary
+    var alignment: HorizontalAlignment = .center
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(alignment: alignment, spacing: 2) {
             Text(it)
                 .font(itFont)
                 .foregroundColor(itColor)
@@ -59,88 +121,54 @@ struct BilingualLabel: View {
                 .font(enFont)
                 .foregroundColor(enColor)
         }
-        .multilineTextAlignment(.center)
     }
 }
 
-// Logo vettoriale identico all'icona dell'app (Neon TV + Play + Onde)
-struct MirrorTVLogoView: View {
-    var size: CGFloat = 110
+// Logo Neon MirrorTV by Zoso
+struct BrandLogoView: View {
+    var compact: Bool = false
 
     var body: some View {
-        VStack(spacing: 8) {
+        HStack(spacing: compact ? 10 : 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                RoundedRectangle(cornerRadius: compact ? 12 : 18, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [Color(red: 0.08, green: 0.09, blue: 0.12), Color(red: 0.03, green: 0.03, blue: 0.05)],
+                            colors: [Color(red: 0.0, green: 0.95, blue: 1.0), Color(red: 1.0, green: 0.29, blue: 0.17)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: size, height: size)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                            .stroke(
-                                LinearGradient(colors: [Color.cyan.opacity(0.6), Color.orange.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 2
-                            )
-                    )
-                    .shadow(color: Color.cyan.opacity(0.35), radius: 12, x: -4, y: -4)
-                    .shadow(color: Color.red.opacity(0.35), radius: 12, x: 4, y: 4)
+                    .frame(width: compact ? 42 : 64, height: compact ? 42 : 64)
+                    .shadow(color: Color.cyan.opacity(0.5), radius: 10, x: -2, y: -2)
+                    .shadow(color: Color.red.opacity(0.5), radius: 10, x: 2, y: 2)
 
-                // Cornice TV Neon
-                RoundedRectangle(cornerRadius: size * 0.10, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [Color.cyan, Color(red: 1.0, green: 0.28, blue: 0.34), Color.orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: size * 0.045
-                    )
-                    .frame(width: size * 0.56, height: size * 0.40)
-
-                // Base TV
-                Capsule()
-                    .fill(
-                        LinearGradient(colors: [Color.pink, Color.orange], startPoint: .leading, endPoint: .trailing)
-                    )
-                    .frame(width: size * 0.28, height: size * 0.04)
-                    .offset(y: size * 0.26)
-
-                // Triangolo Play centrale
                 Image(systemName: "play.fill")
-                    .font(.system(size: size * 0.20, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(colors: [Color.cyan, Color.pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
-                    .offset(x: size * 0.015)
-
-                // Onde Wi-Fi in alto a destra
-                Image(systemName: "wifi")
-                    .font(.system(size: size * 0.22, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(colors: [Color.cyan, Color.orange], startPoint: .top, endPoint: .bottom)
-                    )
-                    .rotationEffect(.degrees(45))
-                    .offset(x: size * 0.26, y: -size * 0.24)
+                    .font(.system(size: compact ? 18 : 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .offset(x: 2)
             }
 
-            VStack(spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("MirrorTV")
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    .foregroundColor(.primary)
+                    .font(compact ? .title3.bold() : .system(size: 32, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+
                 Text("by Zoso")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(compact ? .caption.bold() : .subheadline.bold())
                     .foregroundStyle(
-                        LinearGradient(colors: [Color.cyan, Color.orange], startPoint: .leading, endPoint: .trailing)
+                        LinearGradient(
+                            colors: [Color.cyan, Color.pink],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
             }
         }
     }
 }
 
+// Pulsante di sistema per avviare la trasmissione dello schermo
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 90, height: 90))
@@ -151,79 +179,19 @@ struct BroadcastPicker: UIViewRepresentable {
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
 
-// Controller remoto sincronizzato in tempo reale con il player proiettato
-class RemoteController: ObservableObject {
-    @Published var isBroadcasting = false
-    @Published var resolution = "1280"
-    @Published var fps = "30"
-    @Published var speed = "1.0"
-    @Published var fitMode = "contain"
-    @Published var rotation = 0
-    @Published var audioMuted = false
-    @Published var remoteCommandSeq = 0
-    @Published var lastAction = ""
+// Schermata Telecomando Live sincronizzata quando la trasmissione è attiva
+struct LiveRemoteView: View {
+    @ObservedObject var state: RemoteState
+    let ipAddress: String
 
-    private var timer: Timer?
-
-    func startPolling() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.fetchState()
-        }
-    }
-
-    func stopPolling() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    func fetchState() {
-        guard let url = URL(string: "http://127.0.0.1:8080/state") else { return }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 0.7
-        URLSession.shared.dataTask(with: req) { [weak self] data, _, err in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                if let data = data, err == nil,
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    self.isBroadcasting = true
-                    if let r = json["res"] as? String { self.resolution = r }
-                    if let f = json["fps"] as? String { self.fps = f }
-                    if let s = json["speed"] as? String { self.speed = s }
-                    if let m = json["fit"] as? String { self.fitMode = m }
-                    if let rot = json["rot"] as? Int { self.rotation = rot }
-                    if let am = json["audioMuted"] as? Bool { self.audioMuted = am }
-                } else {
-                    self.isBroadcasting = false
-                }
-            }
-        }.resume()
-    }
-
-    func sendCommand(_ query: String) {
-        guard let url = URL(string: "http://127.0.0.1:8080/config?\(query)") else { return }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 1.0
-        URLSession.shared.dataTask(with: req) { [weak self] _, _, _ in
-            DispatchQueue.main.async {
-                self?.fetchState()
-            }
-        }.resume()
-    }
-}
-
-struct RemoteControlView: View {
-    @ObservedObject var remote: RemoteController
-    let urlString: String
-
-    let resolutions: [(label: String, val: String)] = [
-        ("4K Ultra HD (2160p)", "3840"),
-        ("2K Quad HD (1440p)", "2560"),
-        ("Full HD (1080p)", "1920"),
-        ("HD (720p)", "1280"),
-        ("SD (480p)", "854"),
-        ("Bassa (360p)", "640"),
-        ("Ultra Leggera (240p)", "426")
+    let resolutions = [
+        ("2160", "4K (2160p)"),
+        ("1440", "2K (1440p)"),
+        ("1920", "1080p Full HD"),
+        ("1280", "720p HD"),
+        ("854", "480p SD"),
+        ("640", "360p"),
+        ("426", "240p")
     ]
 
     let fpsOptions = ["60", "50", "30", "24", "15", "10"]
@@ -231,209 +199,241 @@ struct RemoteControlView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 18) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 10, height: 10)
-                    BilingualLabel(
-                        it: "TRASMISSIONE IN CORSO",
-                        en: "LIVE BROADCASTING",
-                        itFont: .headline.bold(),
-                        enFont: .caption2,
-                        itColor: .red,
-                        enColor: .secondary
-                    )
+            VStack(spacing: 20) {
+                HStack {
+                    BrandLogoView(compact: true)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 8, height: 8)
+                        Text("LIVE")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.red.opacity(0.25))
+                    .cornerRadius(8)
                 }
                 .padding(.top, 8)
 
-                Text(urlString)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(10)
+                // Indirizzo attivo
+                VStack(spacing: 4) {
+                    BilingualText(
+                        it: "Proiezione attiva su:",
+                        en: "Casting live at:",
+                        itFont: .caption.bold(),
+                        enFont: .caption2,
+                        itColor: .gray,
+                        enColor: .gray.opacity(0.7)
+                    )
+                    Text(ipAddress)
+                        .font(.system(.callout, design: .monospaced).bold())
+                        .foregroundColor(.cyan)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(Color.white.opacity(0.07))
+                .cornerRadius(14)
 
-                // Controllo Audio & Rotazione
-                HStack(spacing: 12) {
+                // Controlli rapidi principali (Audio, Ruota, Zoom, Schermo Intero)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     Button {
-                        let nextMute = !remote.audioMuted
-                        remote.audioMuted = nextMute
-                        remote.sendCommand("mute=\(nextMute ? 1 : 0)")
+                        state.audioActive.toggle()
+                        state.sendCommand("aud=\(state.audioActive ? "1" : "0")")
                     } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: remote.audioMuted ? "speaker.slash.fill" : "speaker.wave.3.fill")
+                        VStack(spacing: 6) {
+                            Image(systemName: state.audioActive ? "speaker.wave.2.fill" : "speaker.slash.fill")
                                 .font(.title2)
-                            BilingualLabel(
-                                it: remote.audioMuted ? "Riattiva Audio" : "Silenzia Audio",
-                                en: remote.audioMuted ? "Unmute Audio" : "Mute Audio",
-                                itFont: .caption.bold(),
+                            BilingualText(
+                                it: state.audioActive ? "Audio Attivo" : "Attiva Audio",
+                                en: state.audioActive ? "Audio On" : "Enable Audio",
+                                itFont: .footnote.bold(),
                                 enFont: .caption2,
                                 itColor: .white,
-                                enColor: .white.opacity(0.8)
+                                enColor: .white.opacity(0.75)
                             )
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(remote.audioMuted ? Color.red : Color.blue)
+                        .padding(.vertical, 14)
+                        .background(state.audioActive ? Color.blue : Color.white.opacity(0.1))
                         .foregroundColor(.white)
                         .cornerRadius(14)
                     }
 
                     Button {
-                        let nextRot = (remote.rotation + 90) % 360
-                        remote.rotation = nextRot
-                        remote.sendCommand("rot=\(nextRot)")
+                        state.rotation = (state.rotation + 90) % 360
+                        state.sendCommand("rot=\(state.rotation)")
                     } label: {
-                        VStack(spacing: 4) {
+                        VStack(spacing: 6) {
                             Image(systemName: "rotate.right.fill")
                                 .font(.title2)
-                            BilingualLabel(
-                                it: "Ruota Schermo (\(remote.rotation)°)",
-                                en: "Rotate Screen (\(remote.rotation)°)",
-                                itFont: .caption.bold(),
+                            BilingualText(
+                                it: "Ruota (\(state.rotation)°)",
+                                en: "Rotate Screen",
+                                itFont: .footnote.bold(),
                                 enFont: .caption2,
-                                itColor: .primary,
-                                enColor: .secondary
+                                itColor: .white,
+                                enColor: .white.opacity(0.75)
                             )
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(14)
-                    }
-                }
-
-                // Formato / Zoom e Schermo Intero
-                HStack(spacing: 12) {
-                    Button {
-                        let nextFit = (remote.fitMode == "contain") ? "zoom" : "contain"
-                        remote.fitMode = nextFit
-                        remote.sendCommand("fit=\(nextFit)")
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: remote.fitMode == "zoom" ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                                .font(.title3)
-                            BilingualLabel(
-                                it: remote.fitMode == "zoom" ? "Adatta Schermo" : "Zoom Riempi",
-                                en: remote.fitMode == "zoom" ? "Fit Screen" : "Zoom Fill",
-                                itFont: .caption.bold(),
-                                enFont: .caption2
-                            )
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(.systemGray5))
+                        .padding(.vertical, 14)
+                        .background(Color.white.opacity(0.1))
+                        .foregroundColor(.white)
                         .cornerRadius(14)
                     }
 
                     Button {
-                        remote.sendCommand("action=fullscreen")
+                        state.fitMode = (state.fitMode == "contain") ? "zoom" : "contain"
+                        state.sendCommand("fit=\(state.fitMode)")
                     } label: {
-                        VStack(spacing: 4) {
+                        VStack(spacing: 6) {
+                            Image(systemName: state.fitMode == "zoom" ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                .font(.title2)
+                            BilingualText(
+                                it: state.fitMode == "zoom" ? "Zoom Attivo" : "Adatta Schermo",
+                                en: state.fitMode == "zoom" ? "Zoomed (118%)" : "Fit Screen",
+                                itFont: .footnote.bold(),
+                                enFont: .caption2,
+                                itColor: .white,
+                                enColor: .white.opacity(0.75)
+                            )
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(state.fitMode == "zoom" ? Color.purple : Color.white.opacity(0.1))
+                        .foregroundColor(.white)
+                        .cornerRadius(14)
+                    }
+
+                    Button {
+                        state.fullscreenTrigger += 1
+                        state.sendCommand("fs=\(state.fullscreenTrigger)")
+                    } label: {
+                        VStack(spacing: 6) {
                             Image(systemName: "viewfinder")
-                                .font(.title3)
-                            BilingualLabel(
-                                it: "Schermo Intero TV",
-                                en: "Toggle TV Fullscreen",
-                                itFont: .caption.bold(),
-                                enFont: .caption2
+                                .font(.title2)
+                            BilingualText(
+                                it: "Schermo Intero",
+                                en: "Toggle Fullscreen",
+                                itFont: .footnote.bold(),
+                                enFont: .caption2,
+                                itColor: .white,
+                                enColor: .white.opacity(0.75)
                             )
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(.systemGray5))
+                        .padding(.vertical, 14)
+                        .background(Color.white.opacity(0.1))
+                        .foregroundColor(.white)
                         .cornerRadius(14)
                     }
                 }
 
-                // Selettore Risoluzione
-                VStack(alignment: .leading, spacing: 6) {
-                    BilingualLabel(
-                        it: "Risoluzione Video",
-                        en: "Video Resolution",
-                        itFont: .subheadline.bold(),
-                        enFont: .caption2
-                    )
-                    Picker("Risoluzione", selection: $remote.resolution) {
-                        ForEach(resolutions, id: \.val) { item in
-                            Text(item.label).tag(item.val)
+                // Selettori Risoluzione, FPS e Velocità
+                VStack(spacing: 14) {
+                    // Risoluzione
+                    HStack {
+                        BilingualText(
+                            it: "Risoluzione Video",
+                            en: "Video Resolution",
+                            itFont: .subheadline.bold(),
+                            enFont: .caption2,
+                            itColor: .white,
+                            enColor: .gray,
+                            alignment: .leading
+                        )
+                        Spacer()
+                        Picker("", selection: $state.resolution) {
+                            ForEach(resolutions, id: \.0) { item in
+                                Text(item.1).tag(item.0)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(.cyan)
+                        .onChange(of: state.resolution) { newVal in
+                            state.sendCommand("res=\(newVal)")
                         }
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(10)
-                    .onChange(of: remote.resolution) { newVal in
-                        remote.sendCommand("res=\(newVal)")
-                    }
-                }
 
-                // Selettore Fluidità (FPS) e Velocità
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        BilingualLabel(
+                    Divider().background(Color.white.opacity(0.15))
+
+                    // Fluidità FPS
+                    HStack {
+                        BilingualText(
                             it: "Fluidità (FPS)",
-                            en: "Frame Rate (FPS)",
+                            en: "Frame Rate",
                             itFont: .subheadline.bold(),
-                            enFont: .caption2
+                            enFont: .caption2,
+                            itColor: .white,
+                            enColor: .gray,
+                            alignment: .leading
                         )
-                        Picker("FPS", selection: $remote.fps) {
+                        Spacer()
+                        Picker("", selection: $state.fps) {
                             ForEach(fpsOptions, id: \.self) { f in
                                 Text("\(f) FPS").tag(f)
                             }
                         }
                         .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity)
-                        .padding(8)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(10)
-                        .onChange(of: remote.fps) { newVal in
-                            remote.sendCommand("fps=\(newVal)")
+                        .tint(.cyan)
+                        .onChange(of: state.fps) { newVal in
+                            state.sendCommand("fps=\(newVal)")
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        BilingualLabel(
+                    Divider().background(Color.white.opacity(0.15))
+
+                    // Velocità
+                    HStack {
+                        BilingualText(
                             it: "Velocità Flusso",
                             en: "Playback Speed",
                             itFont: .subheadline.bold(),
-                            enFont: .caption2
+                            enFont: .caption2,
+                            itColor: .white,
+                            enColor: .gray,
+                            alignment: .leading
                         )
-                        Picker("Velocità", selection: $remote.speed) {
+                        Spacer()
+                        Picker("", selection: $state.speed) {
                             ForEach(speedOptions, id: \.self) { s in
                                 Text("\(s)x").tag(s)
                             }
                         }
                         .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity)
-                        .padding(8)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(10)
-                        .onChange(of: remote.speed) { newVal in
-                            remote.sendCommand("speed=\(newVal)")
+                        .tint(.cyan)
+                        .onChange(of: state.speed) { newVal in
+                            state.sendCommand("spd=\(newVal)")
                         }
                     }
                 }
+                .padding(16)
+                .background(Color.white.opacity(0.07))
+                .cornerRadius(16)
 
                 // Pulsante per fermare la trasmissione
                 VStack(spacing: 6) {
                     BroadcastPicker()
                         .frame(width: 70, height: 70)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(16)
-                    BilingualLabel(
-                        it: "Tocca per interrompere la trasmissione",
-                        en: "Tap to stop broadcasting",
-                        itFont: .caption,
-                        enFont: .caption2
+                        .background(Color.red.opacity(0.2))
+                        .cornerRadius(18)
+                    BilingualText(
+                        it: "Tocca per interrompere",
+                        en: "Tap to stop broadcast",
+                        itFont: .caption.bold(),
+                        enFont: .caption2,
+                        itColor: .red,
+                        enColor: .gray
                     )
                 }
-                .padding(.top, 8)
+                .padding(.top, 6)
             }
             .padding()
         }
+        .background(Color.black.ignoresSafeArea())
     }
 }
 
@@ -441,7 +441,7 @@ struct ContentView: View {
     @State private var ip: String? = localIPAddress()
     @State private var copied = false
     @StateObject private var networkTrigger = LocalNetworkTrigger()
-    @StateObject private var remote = RemoteController()
+    @StateObject private var remoteState = RemoteState()
 
     var urlString: String {
         if let ip { return "http://\(ip):8080" }
@@ -450,98 +450,125 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if remote.isBroadcasting {
-                RemoteControlView(remote: remote, urlString: urlString)
+            if remoteState.isBroadcasting {
+                LiveRemoteView(state: remoteState, ipAddress: urlString)
             } else {
                 ScrollView {
-                    VStack(spacing: 20) {
-                        MirrorTVLogoView(size: 110)
-                            .padding(.top, 16)
+                    VStack(spacing: 22) {
+                        Spacer(minLength: 16)
+
+                        // Nuovo Logo al posto della scritta
+                        BrandLogoView(compact: false)
+                            .padding(.bottom, 4)
 
                         VStack(spacing: 10) {
-                            BilingualLabel(
+                            BilingualText(
                                 it: "1. Tocca l'icona qui sotto",
                                 en: "1. Tap the icon below",
                                 itFont: .subheadline.bold(),
-                                enFont: .caption2
+                                enFont: .caption2,
+                                itColor: .white,
+                                enColor: .gray
                             )
-                            BilingualLabel(
+                            BilingualText(
                                 it: "2. Scegli "Mirror TV" e premi "Avvia trasmissione"",
                                 en: "2. Select "Mirror TV" and tap "Start Broadcast"",
                                 itFont: .subheadline.bold(),
-                                enFont: .caption2
+                                enFont: .caption2,
+                                itColor: .white,
+                                enColor: .gray
                             )
-                            BilingualLabel(
+                            BilingualText(
                                 it: "3. Sulla TV o PC apri questo indirizzo nel browser:",
                                 en: "3. Open this address in your TV or PC browser:",
                                 itFont: .subheadline.bold(),
-                                enFont: .caption2
+                                enFont: .caption2,
+                                itColor: .white,
+                                enColor: .gray
                             )
                         }
-                        .padding(.horizontal)
+                        .multilineTextAlignment(.center)
 
                         BroadcastPicker()
                             .frame(width: 90, height: 90)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(20)
+                            .background(Color.white.opacity(0.12))
+                            .cornerRadius(22)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22)
+                                    .stroke(LinearGradient(colors: [.cyan, .pink], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                            )
 
                         Text(urlString)
                             .font(.system(.title3, design: .monospaced).bold())
-                            .padding(12)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
+                            .foregroundColor(.cyan)
+                            .padding(14)
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(14)
 
-                        HStack(spacing: 16) {
+                        HStack(spacing: 14) {
                             Button {
                                 UIPasteboard.general.string = urlString
                                 copied = true
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
                             } label: {
-                                BilingualLabel(
+                                BilingualText(
                                     it: copied ? "Copiato!" : "Copia indirizzo",
                                     en: copied ? "Copied!" : "Copy address",
-                                    itFont: .subheadline.bold(),
-                                    enFont: .caption2
+                                    itFont: .footnote.bold(),
+                                    enFont: .caption2,
+                                    itColor: .white,
+                                    enColor: .white.opacity(0.75)
                                 )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.blue)
+                                .cornerRadius(10)
                             }
-                            .buttonStyle(.bordered)
 
                             Button {
                                 ip = localIPAddress()
                             } label: {
-                                BilingualLabel(
+                                BilingualText(
                                     it: "Aggiorna IP",
                                     en: "Refresh IP",
-                                    itFont: .subheadline.bold(),
-                                    enFont: .caption2
+                                    itFont: .footnote.bold(),
+                                    enFont: .caption2,
+                                    itColor: .white,
+                                    enColor: .white.opacity(0.75)
                                 )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.15))
+                                .cornerRadius(10)
                             }
-                            .buttonStyle(.bordered)
                         }
 
-                        BilingualLabel(
+                        BilingualText(
                             it: "La TV e l'iPhone devono essere sulla stessa rete Wi-Fi.",
                             en: "TV and iPhone must be connected to the same Wi-Fi network.",
                             itFont: .footnote,
-                            enFont: .caption2
+                            enFont: .caption2,
+                            itColor: .gray,
+                            enColor: .gray.opacity(0.7)
                         )
-                        .padding(.top, 8)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+
+                        Spacer(minLength: 16)
                     }
                     .padding()
                 }
+                .background(Color.black.ignoresSafeArea())
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             ip = localIPAddress()
             networkTrigger.trigger()
-            remote.startPolling()
+            remoteState.startMonitoring()
         }
         .onDisappear {
-            remote.stopPolling()
+            remoteState.stopMonitoring()
         }
     }
 }
