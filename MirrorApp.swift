@@ -1,5 +1,6 @@
 import SwiftUI
 import ReplayKit
+import Network
 
 // Indirizzo IP dell'iPhone sul Wi-Fi (o sull'hotspot)
 func localIPAddress() -> String? {
@@ -26,6 +27,22 @@ func localIPAddress() -> String? {
     return found
 }
 
+// Forza iOS a mostrare il popup "Consenti rete locale" all'apertura dell'app
+class LocalNetworkTrigger: ObservableObject {
+    private var browser: NWBrowser?
+
+    func trigger() {
+        let params = NWParameters()
+        params.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: params)
+        self.browser = browser
+        browser.start(queue: .main)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            browser.cancel()
+        }
+    }
+}
+
 // Pulsante di sistema per avviare la trasmissione dello schermo
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
@@ -40,6 +57,7 @@ struct BroadcastPicker: UIViewRepresentable {
 struct ContentView: View {
     @State private var ip: String? = localIPAddress()
     @State private var copied = false
+    @StateObject private var networkTrigger = LocalNetworkTrigger()
 
     var urlString: String {
         if let ip { return "http://\(ip):8080" }
@@ -98,7 +116,10 @@ struct ContentView: View {
             Spacer()
         }
         .padding()
-        .onAppear { ip = localIPAddress() }
+        .onAppear {
+            ip = localIPAddress()
+            networkTrigger.trigger()
+        }
     }
 }
 
