@@ -53,7 +53,7 @@ private let pageHTML = [
     "function rotateVideo(){rotation=(rotation+90)%360;applyTransform()}",
     "function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(function(){});else document.exitFullscreen().catch(function(){})}",
     "function updateConfig(){var r=document.getElementById('sel-res').value,f=document.getElementById('sel-fps').value;fetch('/config?res='+r+'&fps='+f).catch(function(){})}",
-    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio attivo';b.classList.add('active');audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var aligned=new Uint8Array(u);aligned.set(buf.subarray(0,u));var n=u/4,i16=new Int16Array(aligned.buffer),ab=ctx.createBuffer(2,n,48000),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.25;if(nextTime>now+1.0)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova audio';b.classList.remove('active')}}}",
+    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio attivo';b.classList.add('active');audioAbort=new AbortController();try{var sr=44100;try{var rInfo=await fetch('/audio-info');if(rInfo.ok){var v=parseInt(await rInfo.text());if(v>8000)sr=v}}catch(e){}ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:sr});await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var aligned=new Uint8Array(u);aligned.set(buf.subarray(0,u));var n=u/4,i16=new Int16Array(aligned.buffer),ab=ctx.createBuffer(2,n,sr),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.25;if(nextTime>now+1.0)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova audio';b.classList.remove('active')}}}",
     "</script></body></html>"
 ].joined()
 
@@ -69,6 +69,7 @@ final class MJPEGServer {
 
     var maxResolution: CGFloat = 1280
     var targetFPS: Double = 30.0
+    var detectedSampleRate: Int = 44100
 
     var hasClients: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -150,6 +151,14 @@ final class MJPEGServer {
             } else {
                 close(client)
             }
+        } else if path.hasPrefix("/audio-info") {
+            lock.lock()
+            let sr = String(detectedSampleRate)
+            lock.unlock()
+            let body = Data(sr.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            _ = sendAll(client, Data(head.utf8) + body)
+            close(client)
         } else if path.hasPrefix("/audio") {
             let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
             if sendAll(client, Data(head.utf8)) {
@@ -293,6 +302,13 @@ class SampleHandler: RPBroadcastSampleHandler {
             }
 
         case .audioApp:
+            if let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee {
+                let sr = Int(asbd.mSampleRate)
+                if sr > 8000 && server.detectedSampleRate != sr {
+                    server.detectedSampleRate = sr
+                }
+            }
             guard server.hasAudioClients else { return }
             guard let pcmData = extractCleanStereoPCM(sampleBuffer) else { return }
             server.broadcastAudio(pcmData)
@@ -309,63 +325,76 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
         let asbd = asbdPtr.pointee
         let channels = Int(asbd.mChannelsPerFrame)
-        let bits = Int(asbd.mBitsPerChannel)
-        let isBigEndian = (asbd.mFormatFlags & kAudioFormatFlagIsBigEndian) != 0
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isBigEndian = (asbd.mFormatFlags & kAudioFormatFlagIsBigEndian) != 0
         let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+        let bits = Int(asbd.mBitsPerChannel)
 
         guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
         var totalLength = 0
         var dataPtr: UnsafeMutablePointer<Int8>?
-        guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPtr) == kCMBlockBufferNoErr,
-              let rawPtr = dataPtr, totalLength > 0 else {
-            return nil
-        }
+        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPtr)
+        guard status == kCMBlockBufferNoErr, let basePtr = dataPtr, totalLength > 0 else { return nil }
 
-        let bytesPerSample = max(1, bits / 8)
-        let totalSamples = totalLength / bytesPerSample
-        let frameCount = channels > 0 ? totalSamples / channels : 0
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
         guard frameCount > 0 else { return nil }
 
-        var outSamples = [Int16](repeating: 0, count: frameCount * 2)
+        var out = Data(capacity: frameCount * 4)
 
-        rawPtr.withMemoryRebound(to: UInt8.self, capacity: totalLength) { bytes in
-            for f in 0..<frameCount {
-                for ch in 0..<min(2, channels) {
-                    let sampleIdx = isNonInterleaved ? (ch * frameCount + f) : (f * channels + ch)
-                    let byteOffset = sampleIdx * bytesPerSample
-                    guard byteOffset + bytesPerSample <= totalLength else { continue }
-
-                    var val: Int16 = 0
-                    if bits == 16 && !isFloat {
-                        let b0 = UInt16(bytes[byteOffset])
-                        let b1 = UInt16(bytes[byteOffset + 1])
-                        let raw16 = isBigEndian ? ((b0 << 8) | b1) : ((b1 << 8) | b0)
-                        val = Int16(bitPattern: raw16)
-                    } else if bits == 32 && isFloat {
-                        var raw32: UInt32 = 0
-                        if isBigEndian {
-                            raw32 = (UInt32(bytes[byteOffset]) << 24) |
-                                    (UInt32(bytes[byteOffset + 1]) << 16) |
-                                    (UInt32(bytes[byteOffset + 2]) << 8) |
-                                    UInt32(bytes[byteOffset + 3])
-                        } else {
-                            raw32 = UInt32(bytes[byteOffset]) |
-                                    (UInt32(bytes[byteOffset + 1]) << 8) |
-                                    (UInt32(bytes[byteOffset + 2]) << 16) |
-                                    (UInt32(bytes[byteOffset + 3]) << 24)
-                        }
-                        let fVal = max(-1.0, min(1.0, Float(bitPattern: raw32)))
-                        val = Int16(fVal * 32767.0)
+        if !isFloat && bits == 16 {
+            let rawSamples = UnsafeRawPointer(basePtr).bindMemory(to: Int16.self, capacity: totalLength / 2)
+            for i in 0..<frameCount {
+                var left: Int16 = 0
+                var right: Int16 = 0
+                if channels >= 2 {
+                    if isNonInterleaved {
+                        left = rawSamples[i]
+                        right = rawSamples[frameCount + i]
+                    } else {
+                        left = rawSamples[i * channels]
+                        right = rawSamples[i * channels + 1]
                     }
-                    outSamples[f * 2 + ch] = val
+                } else {
+                    left = rawSamples[i]
+                    right = left
                 }
-                if channels == 1 {
-                    outSamples[f * 2 + 1] = outSamples[f * 2]
+                if isBigEndian {
+                    left = Int16(bigEndian: left)
+                    right = Int16(bigEndian: right)
                 }
+                var lLE = left.littleEndian
+                var rLE = right.littleEndian
+                out.append(UnsafeBufferPointer(start: &lLE, count: 1))
+                out.append(UnsafeBufferPointer(start: &rLE, count: 1))
             }
+            return out
+        } else if isFloat && bits == 32 {
+            let rawFloats = UnsafeRawPointer(basePtr).bindMemory(to: Float32.self, capacity: totalLength / 4)
+            for i in 0..<frameCount {
+                var lF: Float32 = 0
+                var rF: Float32 = 0
+                if channels >= 2 {
+                    if isNonInterleaved {
+                        lF = rawFloats[i]
+                        rF = rawFloats[frameCount + i]
+                    } else {
+                        lF = rawFloats[i * channels]
+                        rF = rawFloats[i * channels + 1]
+                    }
+                } else {
+                    lF = rawFloats[i]
+                    rF = lF
+                }
+                let lClamped = max(-1.0, min(1.0, lF))
+                let rClamped = max(-1.0, min(1.0, rF))
+                var lLE = Int16(lClamped * 32767.0).littleEndian
+                var rLE = Int16(rClamped * 32767.0).littleEndian
+                out.append(UnsafeBufferPointer(start: &lLE, count: 1))
+                out.append(UnsafeBufferPointer(start: &rLE, count: 1))
+            }
+            return out
         }
 
-        return outSamples.withUnsafeBytes { Data($0) }
+        return nil
     }
 }
