@@ -140,6 +140,7 @@ class RemoteControlManager: ObservableObject {
     @Published var rotation = 0
     @Published var audioActive = false
     @Published var isPaused = false
+    @Published var isFullscreen = false
 
     private var timer: Timer?
 
@@ -199,6 +200,7 @@ class RemoteControlManager: ObservableObject {
                 if let rot = json["rot"] as? Int { self?.rotation = rot }
                 if let aud = json["audio"] as? Bool { self?.audioActive = aud }
                 if let pau = json["paused"] as? Bool { self?.isPaused = pau }
+                if let full = json["full"] as? Bool { self?.isFullscreen = full }
             }
         }.resume()
     }
@@ -311,6 +313,7 @@ struct RemoteControlView: View {
                 VStack(spacing: 16) {
                     header
                     commandGrid
+                    fullscreenButton
                     settingsBox
                     minimizeButton
                     stopButton
@@ -404,13 +407,33 @@ struct RemoteControlView: View {
             } label: {
                 VStack(spacing: 4) {
                     Image(systemName: remote.fitMode == "zoom" ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right").font(.title2)
-                    BilingualLabel(it: remote.fitMode == "zoom" ? "Zoom 118%" : "Adatta Intero",
-                                   en: remote.fitMode == "zoom" ? "Zoomed" : "Fit Screen",
+                    BilingualLabel(it: remote.fitMode == "zoom" ? "Zoom 118%" : "Adatta",
+                                   en: remote.fitMode == "zoom" ? "Zoomed" : "Fit",
                                    font: .callout.bold())
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 14)
                 .background(remote.fitMode == "zoom" ? Color.purple.opacity(0.25) : Color(.systemGray6)).cornerRadius(14)
             }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+    }
+
+    private var fullscreenButton: some View {
+        Button {
+            remote.isFullscreen.toggle()
+            remote.sendCommand("full=\(remote.isFullscreen ? 1 : 0)")
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: remote.isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.title2)
+                BilingualLabel(it: remote.isFullscreen ? "Esci da Schermo Intero" : "Schermo Intero",
+                               en: remote.isFullscreen ? "Exit Fullscreen" : "Fullscreen",
+                               font: .callout.bold())
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 14)
+            .background(remote.isFullscreen ? Color.green.opacity(0.25) : Color(.systemGray6))
+            .cornerRadius(14)
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
