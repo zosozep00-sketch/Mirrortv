@@ -6,73 +6,63 @@ import Darwin
 
 private let pageHTML = [
     "<!doctype html><html><head><meta charset='utf-8'>",
-    "<meta http-equiv='X-UA-Compatible' content='IE=edge'>",
-    "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>",
+    "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>",
     "<title>MirrorTV by Zoso</title><style>",
     "*{box-sizing:border-box;-webkit-user-select:none;user-select:none}",
-    "html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}",
-    "#stage{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:#000}",
-    "#v{width:100%;height:100%;max-width:100vw;max-height:100vh;object-fit:contain;display:block;transition:transform .2s ease}",
-    "#brand{position:fixed;top:16px;left:18px;display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(15,15,20,.85);border:1px solid rgba(255,255,255,.18);border-radius:14px;z-index:25;transition:opacity .3s ease}",
+    "html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}",
+    "#v{width:100vw;height:100vh;object-fit:contain;display:block;transition:transform .2s ease}",
+    "#brand{position:fixed;top:18px;left:22px;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;gap:10px;padding:8px 14px;background:rgba(18,18,22,.85);border:1px solid rgba(255,255,255,.18);border-radius:14px;z-index:25;transition:opacity .3s ease}",
     "#brand.hidden{opacity:0;pointer-events:none}",
-    ".app-logo{width:34px;height:34px;border-radius:9px;background:#101218;border:1.5px solid #00f2fe;display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px rgba(0,242,254,.5)}",
-    ".brand-text{display:flex;flex-direction:column;line-height:1.15}",
+    ".brand-icon{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#00f2fe,#ff4b2b);display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;box-shadow:0 0 12px rgba(0,242,254,.5)}",
+    ".brand-play{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:10px solid #fff;margin-left:2px}",
+    ".brand-text{display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;line-height:1.1}",
     ".brand-title{color:#fff;font-size:15px;font-weight:800}",
     ".brand-sub{font-size:11px;font-weight:700;color:#00f2fe}",
-    "#controls{position:fixed;bottom:0;left:0;right:0;padding:22px 18px 14px;background:rgba(0,0,0,.85);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;opacity:1;transition:opacity .3s ease;z-index:20}",
+    "#pause-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.8);color:#fff;padding:16px 28px;border-radius:16px;border:1px solid rgba(255,255,255,.2);font-size:20px;font-weight:700;display:none;z-index:28;text-align:center}",
+    "#controls{position:fixed;bottom:0;left:0;right:0;padding:24px 20px 16px;background:linear-gradient(transparent,rgba(0,0,0,.92));display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;gap:10px;opacity:1;transition:opacity .3s ease;z-index:20}",
     "#controls.hidden{opacity:0;pointer-events:none}",
-    ".group{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
-    ".btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);padding:7px 12px;border-radius:9px;cursor:pointer;text-align:center;display:inline-flex;flex-direction:column;align-items:center;justify-content:center}",
+    ".group{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;gap:8px}",
+    ".btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 12px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;text-align:center}",
+    ".btn small{display:block;font-size:10px;font-weight:400;opacity:.75}",
     ".btn:hover,.btn:focus{background:rgba(255,255,255,.3);outline:2px solid #00f2fe}",
-    ".btn.active{background:#0072ff;border-color:#00f2fe}",
-    ".lbl-it{font-size:13px;font-weight:700;line-height:1.1}",
-    ".lbl-en{font-size:10px;font-weight:400;opacity:.75;line-height:1.1;margin-top:2px}",
-    ".live-badge{display:flex;align-items:center;gap:6px;color:#fff;padding:6px 10px;background:rgba(255,59,48,.25);border:1px solid rgba(255,59,48,.5);border-radius:8px}",
+    ".btn.active{background:#0072ff;border-color:#00c6ff}",
+    ".live-badge{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;gap:6px;color:#fff;font-size:12px;font-weight:700;padding:8px 10px;background:rgba(255,59,48,.25);border:1px solid rgba(255,59,48,.5);border-radius:8px}",
     ".dot{width:8px;height:8px;background:#ff3b30;border-radius:50%}",
-    "#settings-menu{position:fixed;bottom:82px;right:18px;background:rgba(20,20,25,.96);border:1px solid rgba(255,255,255,.2);border-radius:14px;padding:14px;width:280px;color:#fff;display:none;flex-direction:column;gap:12px;z-index:30}",
-    "#settings-menu.open{display:flex}",
-    ".menu-row{display:flex;justify-content:space-between;align-items:center}",
-    ".menu-lbl{display:flex;flex-direction:column}",
-    "select{background:#2c2c34;color:#fff;border:1px solid rgba(255,255,255,.2);padding:6px 8px;border-radius:8px;font-size:12px;outline:none}",
+    "#settings-menu{position:fixed;bottom:82px;right:20px;background:rgba(22,22,26,.96);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:14px;width:270px;color:#fff;display:none;-webkit-flex-direction:column;flex-direction:column;gap:12px;z-index:30}",
+    "#settings-menu.open{display:-webkit-flex;display:flex}",
+    ".menu-row{display:-webkit-flex;display:flex;-webkit-justify-content:space-between;justify-content:space-between;-webkit-align-items:center;align-items:center;font-size:13px}",
+    ".menu-row span small{display:block;font-size:10px;opacity:.7}",
+    "select{background:#323238;color:#fff;border:none;padding:6px 8px;border-radius:8px;font-size:12px}",
     "</style></head><body>",
-    "<div id='brand'>",
-    "<div class='app-logo'><svg width='24' height='24' viewBox='0 0 24 24' fill='none'><rect x='2' y='5' width='16' height='12' rx='3' stroke='#00f2fe' stroke-width='2.2'/><path d='M8 9L13 11L8 13V9Z' fill='#ff4b2b'/><path d='M16 3C18.5 3 21 5.5 21 8' stroke='#ff758c' stroke-width='2' stroke-linecap='round'/><line x1='6' y1='20' x2='14' y2='20' stroke='#ff758c' stroke-width='2.2' stroke-linecap='round'/></svg></div>",
-    "<div class='brand-text'><span class='brand-title'>MirrorTV</span><span class='brand-sub'>by Zoso</span></div>",
-    "</div>",
-    "<div id='stage'><img id='v' src='/stream' ondblclick='toggleFullscreen()'></div>",
+    "<div id='brand'><div class='brand-icon'><div class='brand-play'></div></div><div class='brand-text'><span class='brand-title'>MirrorTV</span><span class='brand-sub'>by Zoso</span></div></div>",
+    "<div id='pause-banner'>IN PAUSA<br><small style='font-size:13px;font-weight:400'>PAUSED</small></div>",
+    "<img id='v' src='/stream' ondblclick='toggleFullscreen()'>",
     "<div id='settings-menu'>",
-    "<div class='menu-row'><div class='menu-lbl'><span class='lbl-it'>Risoluzione</span><span class='lbl-en'>Resolution</span></div><select id='sel-res' onchange='updateConfig()'><option value='3840'>4K (2160p)</option><option value='2560'>2K (1440p)</option><option value='1920'>1080p Full HD</option><option value='1280' selected>720p HD</option><option value='854'>480p SD</option><option value='640'>360p</option><option value='426'>240p</option></select></div>",
-    "<div class='menu-row'><div class='menu-lbl'><span class='lbl-it'>Fluidità</span><span class='lbl-en'>Frame Rate</span></div><select id='sel-fps' onchange='updateConfig()'><option value='60'>60 FPS</option><option value='50'>50 FPS</option><option value='30' selected>30 FPS</option><option value='24'>24 FPS</option><option value='15'>15 FPS</option><option value='10'>10 FPS</option></select></div>",
-    "<div class='menu-row'><div class='menu-lbl'><span class='lbl-it'>Velocità</span><span class='lbl-en'>Playback Speed</span></div><select id='sel-speed' onchange='updateConfig()'><option value='0.25'>0.25x</option><option value='0.5'>0.5x</option><option value='0.75'>0.75x</option><option value='1.0' selected>1.0x (Normale)</option><option value='1.25'>1.25x</option><option value='1.5'>1.5x</option><option value='2.0'>2.0x</option></select></div>",
-    "<div class='menu-row'><div class='menu-lbl'><span class='lbl-it'>Formato Schermo</span><span class='lbl-en'>Screen Aspect</span></div><select id='sel-fit' onchange='toggleFit(this.value)'><option value='contain' selected>Adatta / Fit</option><option value='zoom'>Zoom (118%)</option></select></div>",
+    "<div class='menu-row'><span>Qualità<small>Resolution</small></span><select id='sel-res' onchange='sendCtrl(\"res=\"+this.value)'><option value='3840'>4K (2160p)</option><option value='2560'>2K (1440p)</option><option value='1920'>1080p Full HD</option><option value='1280' selected>720p HD</option><option value='854'>480p SD</option><option value='640'>360p</option><option value='426'>240p</option></select></div>",
+    "<div class='menu-row'><span>Fluidità<small>Frame Rate</small></span><select id='sel-fps' onchange='sendCtrl(\"fps=\"+this.value)'><option value='60'>60 FPS</option><option value='50'>50 FPS</option><option value='30' selected>30 FPS</option><option value='25'>25 FPS</option><option value='15'>15 FPS</option><option value='10'>10 FPS</option></select></div>",
+    "<div class='menu-row'><span>Velocità<small>Speed</small></span><select id='sel-spd' onchange='sendCtrl(\"speed=\"+this.value)'><option value='0.25'>0.25x</option><option value='0.5'>0.5x</option><option value='0.75'>0.75x</option><option value='1.0' selected>1.0x</option><option value='1.25'>1.25x</option><option value='1.5'>1.5x</option><option value='2.0'>2.0x</option></select></div>",
+    "<div class='menu-row'><span>Formato<small>Aspect Fit</small></span><select id='sel-fit' onchange='sendCtrl(\"fit=\"+this.value)'><option value='contain' selected>Adatta / Fit</option><option value='zoom'>Zoom 118%</option></select></div>",
     "</div>",
     "<div id='controls'>",
-    "<div class='group'>",
-    "<div class='live-badge'><span class='dot'></span><div><div class='lbl-it'>DAL VIVO</div><div class='lbl-en'>LIVE</div></div></div>",
-    "<button id='btn-audio' class='btn' onclick='toggleAudio()'><span id='aud-it' class='lbl-it'>🔇 Attiva Audio</span><span id='aud-en' class='lbl-en'>Enable Audio</span></button>",
-    "</div>",
-    "<div class='group'>",
-    "<button class='btn' onclick='rotateVideo()'><span class='lbl-it'>↻ Ruota</span><span class='lbl-en'>Rotate</span></button>",
-    "<button class='btn' onclick='toggleMenu()'><span class='lbl-it'>⚙️ Impostazioni</span><span class='lbl-en'>Settings</span></button>",
-    "<button class='btn' onclick='toggleFullscreen()'><span class='lbl-it'>⛶ Schermo Intero</span><span class='lbl-en'>Fullscreen</span></button>",
-    "</div>",
+    "<div class='group'><div class='live-badge'><span class='dot'></span> LIVE</div><button id='btn-pause' class='btn' onclick='togglePause()'>⏸ Pausa<small>Pause</small></button><button id='btn-audio' class='btn' onclick='toggleAudio()'>🔇 Audio<small>Enable Audio</small></button></div>",
+    "<div class='group'><button class='btn' onclick='rotateVideo()'>↻ Ruota<small>Rotate</small></button><button class='btn' onclick='toggleMenu()'>⚙️ Opzioni<small>Settings</small></button><button class='btn' onclick='toggleFullscreen()'>⛶ Intero<small>Fullscreen</small></button></div>",
     "</div>",
     "<script>",
-    "var ctx=null,nextTime=0,audioRunning=false,audioReader=null,audioAbort=null,rotation=0,zoomed=false,hideTimer=null,lastActionId=0,streamSpeed=1.0;",
+    "var ctx=null,nextTime=0,audioRunning=false,audioAbort=null,rotation=0,zoomed=false,paused=false,hideTimer=null;",
     "function showControls(){var c=document.getElementById('controls'),b=document.getElementById('brand');c.classList.remove('hidden');b.classList.remove('hidden');clearTimeout(hideTimer);hideTimer=setTimeout(function(){if(!document.getElementById('settings-menu').classList.contains('open')){c.classList.add('hidden');b.classList.add('hidden')}},3500)}",
     "document.addEventListener('mousemove',showControls);document.addEventListener('touchstart',showControls);document.addEventListener('keydown',showControls);showControls();",
     "function toggleMenu(){document.getElementById('settings-menu').classList.toggle('open')}",
     "function applyTransform(){var i=document.getElementById('v');i.style.transform='rotate('+rotation+'deg)'+(zoomed?' scale(1.18)':'')}",
-    "function toggleFit(m){zoomed=(m==='zoom');applyTransform();fetch('/config?fit='+m).catch(function(){})}",
-    "function rotateVideo(){rotation=(rotation+90)%360;applyTransform();fetch('/config?rot='+rotation).catch(function(){})}",
-    "function toggleFullscreen(){if(!document.fullscreenElement){var el=document.documentElement;if(el.requestFullscreen)el.requestFullscreen().catch(function(){});else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen();}else{if(document.exitFullscreen)document.exitFullscreen().catch(function(){});else if(document.webkitExitFullscreen)document.webkitExitFullscreen();}}",
-    "function updateConfig(){var r=document.getElementById('sel-res').value,f=document.getElementById('sel-fps').value,s=document.getElementById('sel-speed').value;streamSpeed=parseFloat(s)||1.0;fetch('/config?res='+r+'&fps='+f+'&speed='+s).catch(function(){})}",
-    "function setAudioBtn(active,err){var b=document.getElementById('btn-audio'),it=document.getElementById('aud-it'),en=document.getElementById('aud-en');if(active){b.classList.add('active');it.textContent='🔊 Audio Attivo';en.textContent='Audio Active';}else{b.classList.remove('active');it.textContent=err?'🔇 Riprova Audio':'🔇 Attiva Audio';en.textContent=err?'Retry Audio':'Enable Audio';}}",
-    "function stopAudioClean(){audioRunning=false;if(audioReader){try{audioReader.cancel()}catch(e){}audioReader=null}if(audioAbort){try{audioAbort.abort()}catch(e){}audioAbort=null}if(ctx){try{ctx.close()}catch(e){}ctx=null}nextTime=0;setAudioBtn(false,false)}",
-    "async function startAudioClean(){stopAudioClean();audioRunning=true;setAudioBtn(true,false);audioAbort=new AbortController();try{var sr=44100;try{var rInfo=await fetch('/audio-info');if(rInfo.ok){var v=parseInt(await rInfo.text());if(v>8000)sr=v}}catch(e){}var AC=window.AudioContext||window.webkitAudioContext;ctx=new AC({sampleRate:sr});if(ctx.state==='suspended')await ctx.resume();var res=await fetch('/audio?t='+Date.now(),{signal:audioAbort.signal});audioReader=res.body.getReader();var left=new Uint8Array(0);while(audioRunning){var r=await audioReader.read();if(r.done||!audioRunning)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var aligned=new Uint8Array(u);aligned.set(buf.subarray(0,u));var n=u/4,i16=new Int16Array(aligned.buffer),ab=ctx.createBuffer(2,n,sr),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.04)nextTime=now+0.18;if(nextTime>now+0.75)continue;var src=ctx.createBufferSource();src.buffer=ab;src.playbackRate.value=streamSpeed;src.connect(ctx.destination);src.start(nextTime);nextTime+=(ab.duration/streamSpeed)}}catch(e){if(audioRunning){stopAudioClean();setAudioBtn(false,true)}}}",
-    "function toggleAudio(){if(audioRunning){stopAudioClean();fetch('/config?mute=1').catch(function(){})}else{startAudioClean();fetch('/config?mute=0').catch(function(){})}}",
-    "setInterval(function(){fetch('/state').then(function(r){return r.json()}).then(function(st){if(st.res&&document.getElementById('sel-res').value!==st.res)document.getElementById('sel-res').value=st.res;if(st.fps&&document.getElementById('sel-fps').value!==st.fps)document.getElementById('sel-fps').value=st.fps;if(st.speed&&document.getElementById('sel-speed').value!==st.speed){document.getElementById('sel-speed').value=st.speed;streamSpeed=parseFloat(st.speed)||1.0}if(st.fit&&document.getElementById('sel-fit').value!==st.fit){document.getElementById('sel-fit').value=st.fit;zoomed=(st.fit==='zoom');applyTransform()}if(typeof st.rot==='number'&&rotation!==st.rot){rotation=st.rot;applyTransform()}if(typeof st.audioMuted==='boolean'){if(st.audioMuted&&audioRunning)stopAudioClean();else if(!st.audioMuted&&!audioRunning)startAudioClean()}if(st.actionId&&st.actionId!==lastActionId){lastActionId=st.actionId;if(st.lastAction==='fullscreen')toggleFullscreen()}}).catch(function(){})},900);",
-    "var img=document.getElementById('v');setInterval(function(){if(img.naturalWidth===0)img.src='/stream?t='+Date.now()},4000);",
+    "function sendCtrl(q){var x=new XMLHttpRequest();x.open('GET','/control?'+q,true);x.send()}",
+    "function togglePause(){paused=!paused;sendCtrl('paused='+(paused?1:0));updateUI()}",
+    "function rotateVideo(){rotation=(rotation+90)%360;sendCtrl('rot='+rotation);applyTransform()}",
+    "function toggleFullscreen(){if(!document.fullscreenElement){if(document.documentElement.requestFullscreen)document.documentElement.requestFullscreen()}else{if(document.exitFullscreen)document.exitFullscreen()}}",
+    "function updateUI(){var pb=document.getElementById('btn-pause'),bn=document.getElementById('pause-banner');if(paused){pb.innerHTML='▶ Riprendi<small>Resume</small>';pb.classList.add('active');bn.style.display='block'}else{pb.innerHTML='⏸ Pausa<small>Pause</small>';pb.classList.remove('active');bn.style.display='none'}applyTransform()}",
+    "function toggleAudio(){if(audioRunning){stopAudio();sendCtrl('audio=0')}else{startAudio();sendCtrl('audio=1')}}",
+    "function stopAudio(){audioRunning=false;if(audioAbort){try{audioAbort.abort()}catch(e){}audioAbort=null}if(ctx){try{ctx.close()}catch(e){}ctx=null}nextTime=0;var b=document.getElementById('btn-audio');b.innerHTML='🔇 Audio<small>Enable Audio</small>';b.classList.remove('active')}",
+    "async function startAudio(){if(audioRunning)return;audioRunning=true;var b=document.getElementById('btn-audio');b.innerHTML='🔊 Attivo<small>Audio On</small>';b.classList.add('active');audioAbort=new AbortController();try{var sr=44100;try{var ri=await fetch('/audio-info');if(ri.ok){var v=parseInt(await ri.text());if(v>8000)sr=v}}catch(e){}var AC=window.AudioContext||window.webkitAudioContext;ctx=new AC({sampleRate:sr});await ctx.resume();var res=await fetch('/audio?t='+Date.now(),{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var aligned=new Uint8Array(u);aligned.set(buf.subarray(0,u));var n=u/4,i16=new Int16Array(aligned.buffer),ab=ctx.createBuffer(2,n,sr),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.04)nextTime=now+0.18;if(nextTime>now+0.9)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning)stopAudio()}}",
+    "setInterval(function(){var x=new XMLHttpRequest();x.open('GET','/state',true);x.onreadystatechange=function(){if(x.readyState===4&&x.status===200){try{var s=JSON.parse(x.responseText);document.getElementById('sel-res').value=s.res;document.getElementById('sel-fps').value=s.fps;document.getElementById('sel-spd').value=s.speed;document.getElementById('sel-fit').value=s.fit;rotation=s.rot;zoomed=(s.fit==='zoom');paused=s.paused;if(s.audio&&!audioRunning)startAudio();if(!s.audio&&audioRunning)stopAudio();updateUI()}catch(e){}}};x.send()},500);",
+    "var img=document.getElementById('v');img.onerror=function(){setTimeout(function(){img.src='/stream?t='+Date.now()},1000)};",
     "</script></body></html>"
 ].joined()
 
@@ -88,32 +78,21 @@ final class MJPEGServer {
 
     var maxResolution: CGFloat = 1280
     var targetFPS: Double = 30.0
-    var streamSpeed: Double = 1.0
+    var playbackSpeed: String = "1.0"
     var fitMode: String = "contain"
-    var rotation: Int = 0
-    var audioMuted: Bool = true
-    var actionId: Int = 0
-    var lastAction: String = ""
+    var rotationDeg: Int = 0
+    var isPaused: Bool = false
+    var audioRequested: Bool = false
     var detectedSampleRate: Int = 44100
-
-    var effectiveFPS: Double {
-        lock.lock(); defer { lock.unlock() }
-        return max(5.0, min(60.0, targetFPS * streamSpeed))
-    }
-
-    var currentMaxRes: CGFloat {
-        lock.lock(); defer { lock.unlock() }
-        return maxResolution
-    }
 
     var hasClients: Bool {
         lock.lock(); defer { lock.unlock() }
-        return !clients.isEmpty
+        return !clients.isEmpty && !isPaused
     }
 
     var hasAudioClients: Bool {
         lock.lock(); defer { lock.unlock() }
-        return !audioClients.isEmpty
+        return !audioClients.isEmpty && !isPaused
     }
 
     func start(port: UInt16) {
@@ -135,7 +114,7 @@ final class MJPEGServer {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard bound == 0, listen(fd, 12) == 0 else {
+        guard bound == 0, listen(fd, 16) == 0 else {
             close(fd)
             return
         }
@@ -168,7 +147,7 @@ final class MJPEGServer {
         var yes: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &yes, socklen_t(MemoryLayout<Int32>.size))
-        var tv = timeval(tv_sec: 1, tv_usec: 500000)
+        var tv = timeval(tv_sec: 2, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
@@ -181,10 +160,10 @@ final class MJPEGServer {
         let path = parts.count > 1 ? String(parts[1]) : "/"
 
         if path.hasPrefix("/stream") {
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache, no-store\r\nConnection: close\r\n\r\n"
             if sendAll(client, Data(head.utf8)) {
                 lock.lock()
-                if clients.count >= 4 {
+                if clients.count > 3 {
                     let old = clients.removeFirst()
                     close(old)
                 }
@@ -194,60 +173,55 @@ final class MJPEGServer {
                 close(client)
             }
         } else if path.hasPrefix("/audio-info") {
-            lock.lock()
-            let sr = String(detectedSampleRate)
-            lock.unlock()
+            lock.lock(); let sr = String(detectedSampleRate); lock.unlock()
             let body = Data(sr.utf8)
             let head = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
             _ = sendAll(client, Data(head.utf8) + body)
             close(client)
         } else if path.hasPrefix("/audio") {
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store, no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache, no-store\r\nConnection: close\r\n\r\n"
             if sendAll(client, Data(head.utf8)) {
                 lock.lock()
-                let oldAudio = audioClients
+                for old in audioClients { close(old) }
                 audioClients.removeAll()
                 audioClients.append(client)
-                audioPending = 0
+                audioRequested = true
                 lock.unlock()
-                for c in oldAudio { close(c) }
             } else {
                 close(client)
             }
-        } else if path.hasPrefix("/state") {
-            lock.lock()
-            let jsonStr = "{\"res\":\"\(Int(maxResolution))\",\"fps\":\"\(Int(targetFPS))\",\"speed\":\"\(streamSpeed)\",\"fit\":\"\(fitMode)\",\"rot\":\(rotation),\"audioMuted\":\(audioMuted),\"actionId\":\(actionId),\"lastAction\":\"\(lastAction)\"}"
-            lock.unlock()
-            let body = Data(jsonStr.utf8)
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
-            _ = sendAll(client, Data(head.utf8) + body)
-            close(client)
-        } else if path.hasPrefix("/config") {
+        } else if path.hasPrefix("/control") {
             if let comps = URLComponents(string: path), let items = comps.queryItems {
                 lock.lock()
                 for item in items {
-                    let v = item.value ?? ""
-                    if item.name == "res", let d = Double(v), d > 100 {
-                        maxResolution = CGFloat(d)
-                    } else if item.name == "fps", let d = Double(v), d > 0 {
-                        targetFPS = d
-                    } else if item.name == "speed", let d = Double(v), d > 0 {
-                        streamSpeed = d
-                    } else if item.name == "fit", !v.isEmpty {
-                        fitMode = v
-                    } else if item.name == "rot", let r = Int(v) {
-                        rotation = r % 360
-                    } else if item.name == "mute" {
-                        audioMuted = (v == "1")
-                    } else if item.name == "action", !v.isEmpty {
-                        lastAction = v
-                        actionId += 1
+                    switch item.name {
+                    case "res": if let val = Double(item.value ?? "") { maxResolution = CGFloat(val) }
+                    case "fps": if let val = Double(item.value ?? ""), val > 0 { targetFPS = val }
+                    case "speed": if let val = item.value { playbackSpeed = val }
+                    case "fit": if let val = item.value { fitMode = val }
+                    case "rot": if let val = Int(item.value ?? "") { rotationDeg = val }
+                    case "paused": isPaused = (item.value == "1")
+                    case "audio":
+                        audioRequested = (item.value == "1")
+                        if !audioRequested {
+                            for old in audioClients { close(old) }
+                            audioClients.removeAll()
+                        }
+                    default: break
                     }
                 }
                 lock.unlock()
             }
-            let head = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+            let head = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\nOK"
             _ = sendAll(client, Data(head.utf8))
+            close(client)
+        } else if path.hasPrefix("/state") {
+            lock.lock()
+            let jsonStr = "{\"res\":\"\(Int(maxResolution))\",\"fps\":\"\(Int(targetFPS))\",\"speed\":\"\(playbackSpeed)\",\"fit\":\"\(fitMode)\",\"rot\":\(rotationDeg),\"paused\":\(isPaused),\"audio\":\(audioRequested)}"
+            lock.unlock()
+            let body = Data(jsonStr.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            _ = sendAll(client, Data(head.utf8) + body)
             close(client)
         } else {
             let body = Data(pageHTML.utf8)
@@ -259,8 +233,7 @@ final class MJPEGServer {
 
     func broadcast(_ jpeg: Data) {
         lock.lock()
-        // Drop-frame automatico: se il client sta ancora scaricando, salta il fotogramma per evitare coda e scatti
-        if busy || clients.isEmpty { lock.unlock(); return }
+        if busy || clients.isEmpty || isPaused { lock.unlock(); return }
         busy = true
         let snapshot = clients
         lock.unlock()
@@ -271,9 +244,7 @@ final class MJPEGServer {
             packet.append(Data("\r\n".utf8))
 
             var dead = Set<Int32>()
-            for fd in snapshot where !sendAll(fd, packet) {
-                dead.insert(fd)
-            }
+            for fd in snapshot where !sendAll(fd, packet) { dead.insert(fd) }
 
             lock.lock()
             clients.removeAll { dead.contains($0) }
@@ -285,20 +256,18 @@ final class MJPEGServer {
 
     func broadcastAudio(_ pcm: Data) {
         lock.lock()
-        if audioClients.isEmpty || audioPending > 6 { lock.unlock(); return }
+        if audioClients.isEmpty || audioPending > 12 || isPaused { lock.unlock(); return }
         audioPending += 1
         let snapshot = audioClients
         lock.unlock()
 
         audioQueue.async { [self] in
             var dead = Set<Int32>()
-            for fd in snapshot where !sendAll(fd, pcm) {
-                dead.insert(fd)
-            }
+            for fd in snapshot where !sendAll(fd, pcm) { dead.insert(fd) }
 
             lock.lock()
             audioClients.removeAll { dead.contains($0) }
-            audioPending = max(0, audioPending - 1)
+            audioPending -= 1
             lock.unlock()
             for fd in dead { close(fd) }
         }
@@ -339,12 +308,11 @@ class SampleHandler: RPBroadcastSampleHandler {
         case .video:
             guard server.hasClients else { return }
             let now = CACurrentMediaTime()
-            if now - lastFrameTime < (1.0 / server.effectiveFPS) { return }
+            if now - lastFrameTime < (1.0 / server.targetFPS) { return }
             lastFrameTime = now
 
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
             autoreleasepool {
+                guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
                 var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
                 if let orientationVal = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
@@ -361,20 +329,15 @@ class SampleHandler: RPBroadcastSampleHandler {
                     }
                 }
 
-                let maxDimension = server.currentMaxRes
+                let maxDimension = server.maxResolution
                 let scale = min(1.0, maxDimension / max(ciImage.extent.width, ciImage.extent.height))
                 if scale < 1.0 {
                     ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
                 }
 
-                // Qualità adattiva per evitare accumuli e scatti alle risoluzioni alte
-                let quality: CGFloat = maxDimension >= 2560 ? 0.52 : (maxDimension >= 1920 ? 0.58 : 0.65)
+                let quality: CGFloat = maxDimension >= 1920 ? 0.52 : 0.65
                 let colorSpace = CGColorSpaceCreateDeviceRGB()
-                if let jpegData = ciContext.jpegRepresentation(
-                    of: ciImage,
-                    colorSpace: colorSpace,
-                    options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality]
-                ) {
+                if let jpegData = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality]) {
                     server.broadcast(jpegData)
                 }
             }
@@ -388,8 +351,11 @@ class SampleHandler: RPBroadcastSampleHandler {
                 }
             }
             guard server.hasAudioClients else { return }
-            guard let pcmData = extractCleanStereoPCM(sampleBuffer) else { return }
-            server.broadcastAudio(pcmData)
+            autoreleasepool {
+                if let pcmData = extractCleanStereoPCM(sampleBuffer) {
+                    server.broadcastAudio(pcmData)
+                }
+            }
 
         default:
             break
@@ -417,62 +383,31 @@ class SampleHandler: RPBroadcastSampleHandler {
         let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
         guard frameCount > 0 else { return nil }
 
-        var out = Data(capacity: frameCount * 4)
-
-        if !isFloat && bits == 16 {
-            let rawSamples = UnsafeRawPointer(basePtr).bindMemory(to: Int16.self, capacity: totalLength / 2)
-            for i in 0..<frameCount {
-                var left: Int16 = 0
-                var right: Int16 = 0
-                if channels >= 2 {
-                    if isNonInterleaved {
-                        left = rawSamples[i]
-                        right = rawSamples[frameCount + i]
-                    } else {
-                        left = rawSamples[i * channels]
-                        right = rawSamples[i * channels + 1]
+        var out = Data(count: frameCount * 4)
+        out.withUnsafeMutableBytes { outRaw in
+            guard let outInt16 = outRaw.bindMemory(to: Int16.self).baseAddress else { return }
+            if !isFloat && bits == 16 {
+                let rawSamples = UnsafeRawPointer(basePtr).bindMemory(to: Int16.self, capacity: totalLength / 2)
+                for i in 0..<frameCount {
+                    var left: Int16 = channels >= 2 ? (isNonInterleaved ? rawSamples[i] : rawSamples[i * channels]) : rawSamples[i]
+                    var right: Int16 = channels >= 2 ? (isNonInterleaved ? rawSamples[frameCount + i] : rawSamples[i * channels + 1]) : left
+                    if isBigEndian {
+                        left = Int16(bigEndian: left)
+                        right = Int16(bigEndian: right)
                     }
-                } else {
-                    left = rawSamples[i]
-                    right = left
+                    outInt16[2 * i] = left.littleEndian
+                    outInt16[2 * i + 1] = right.littleEndian
                 }
-                if isBigEndian {
-                    left = Int16(bigEndian: left)
-                    right = Int16(bigEndian: right)
+            } else if isFloat && bits == 32 {
+                let rawFloats = UnsafeRawPointer(basePtr).bindMemory(to: Float32.self, capacity: totalLength / 4)
+                for i in 0..<frameCount {
+                    let lF: Float32 = channels >= 2 ? (isNonInterleaved ? rawFloats[i] : rawFloats[i * channels]) : rawFloats[i]
+                    let rF: Float32 = channels >= 2 ? (isNonInterleaved ? rawFloats[frameCount + i] : rawFloats[i * channels + 1]) : lF
+                    outInt16[2 * i] = Int16(max(-1.0, min(1.0, lF)) * 32767.0).littleEndian
+                    outInt16[2 * i + 1] = Int16(max(-1.0, min(1.0, rF)) * 32767.0).littleEndian
                 }
-                var lLE = left.littleEndian
-                var rLE = right.littleEndian
-                out.append(UnsafeBufferPointer(start: &lLE, count: 1))
-                out.append(UnsafeBufferPointer(start: &rLE, count: 1))
             }
-            return out
-        } else if isFloat && bits == 32 {
-            let rawFloats = UnsafeRawPointer(basePtr).bindMemory(to: Float32.self, capacity: totalLength / 4)
-            for i in 0..<frameCount {
-                var lF: Float32 = 0
-                var rF: Float32 = 0
-                if channels >= 2 {
-                    if isNonInterleaved {
-                        lF = rawFloats[i]
-                        rF = rawFloats[frameCount + i]
-                    } else {
-                        lF = rawFloats[i * channels]
-                        rF = rawFloats[i * channels + 1]
-                    }
-                } else {
-                    lF = rawFloats[i]
-                    rF = lF
-                }
-                let lClamped = max(-1.0, min(1.0, lF))
-                let rClamped = max(-1.0, min(1.0, rF))
-                var lLE = Int16(lClamped * 32767.0).littleEndian
-                var rLE = Int16(rClamped * 32767.0).littleEndian
-                out.append(UnsafeBufferPointer(start: &lLE, count: 1))
-                out.append(UnsafeBufferPointer(start: &rLE, count: 1))
-            }
-            return out
         }
-
-        return nil
+        return out
     }
 }
