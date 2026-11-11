@@ -1,0 +1,27 @@
+name: Build IPA
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Genera progetto Xcode
+        run: |
+          brew install xcodegen
+          xcodegen
+      - name: Compila
+        run: |
+          xcodebuild -project MirrorTV.xcodeproj -scheme MirrorTV \
+            -sdk iphoneos -configuration Release \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath build
+      - name: Crea IPA
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/MirrorTV.app Payload/
+          zip -r MirrorTV.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MirrorTV-ipa
+          path: MirrorTV.ipa
