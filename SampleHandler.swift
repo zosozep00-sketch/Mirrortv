@@ -133,3 +133,229 @@ final class MJPEGServer {
         var yes: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
         var tv = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        var buf = [UInt8](repeating: 0, count: 2048)
+        let n = recv(client, &buf, buf.count, 0)
+        guard n > 0 else { close(client); return }
+
+        let request = String(decoding: buf[0..<n], as: UTF8.self)
+        let parts = request.split(separator: " ")
+        let path = parts.count > 1 ? String(parts[1]) : "/"
+
+        if path.hasPrefix("/stream") {
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            if sendAll(client, Data(head.utf8)) {
+                lock.lock(); clients.append(client); lock.unlock()
+            } else {
+                close(client)
+            }
+        } else if path.hasPrefix("/audio") {
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            if sendAll(client, Data(head.utf8)) {
+                lock.lock(); audioClients.append(client); lock.unlock()
+            } else {
+                close(client)
+            }
+        } else if path.hasPrefix("/config") {
+            if let comps = URLComponents(string: path), let items = comps.queryItems {
+                lock.lock()
+                for item in items {
+                    if item.name == "res", let val = Double(item.value ?? "") {
+                        maxResolution = CGFloat(val)
+                    } else if item.name == "fps", let val = Double(item.value ?? ""), val > 0 {
+                        targetFPS = val
+                    }
+                }
+                lock.unlock()
+            }
+            let head = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+            _ = sendAll(client, Data(head.utf8))
+            close(client)
+        } else {
+            let body = Data(pageHTML.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            _ = sendAll(client, Data(head.utf8) + body)
+            close(client)
+        }
+    }
+
+    func broadcast(_ jpeg: Data) {
+        lock.lock()
+        if busy || clients.isEmpty { lock.unlock(); return }
+        busy = true
+        let snapshot = clients
+        lock.unlock()
+
+        sendQueue.async { [self] in
+            var packet = Data("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: \(jpeg.count)\r\n\r\n".utf8)
+            packet.append(jpeg)
+            packet.append(Data("\r\n".utf8))
+
+            var dead = Set<Int32>()
+            for fd in snapshot where !sendAll(fd, packet) {
+                dead.insert(fd)
+            }
+
+            lock.lock()
+            clients.removeAll { dead.contains($0) }
+            busy = false
+            lock.unlock()
+            for fd in dead { close(fd) }
+        }
+    }
+
+    func broadcastAudio(_ pcm: Data) {
+        lock.lock()
+        if audioClients.isEmpty || audioPending > 20 { lock.unlock(); return }
+        audioPending += 1
+        let snapshot = audioClients
+        lock.unlock()
+
+        audioQueue.async { [self] in
+            var dead = Set<Int32>()
+            for fd in snapshot where !sendAll(fd, pcm) {
+                dead.insert(fd)
+            }
+
+            lock.lock()
+            audioClients.removeAll { dead.contains($0) }
+            audioPending -= 1
+            lock.unlock()
+            for fd in dead { close(fd) }
+        }
+    }
+
+    private func sendAll(_ fd: Int32, _ data: Data) -> Bool {
+        return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            var sent = 0
+            while sent < data.count {
+                let n = send(fd, base + sent, data.count - sent, 0)
+                if n <= 0 { return false }
+                sent += n
+            }
+            return true
+        }
+    }
+}
+
+class SampleHandler: RPBroadcastSampleHandler {
+    private let server = MJPEGServer()
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private var lastFrameTime: CFTimeInterval = 0
+    private var audioConverter: AVAudioConverter?
+    private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 2, interleaved: true)!
+
+    override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
+        server.start(port: 8080)
+    }
+
+    override func broadcastPaused() {}
+    override func broadcastResumed() {}
+
+    override func broadcastFinished() {
+        server.stop()
+        audioConverter = nil
+    }
+
+    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
+        switch sampleBufferType {
+        case .video:
+            guard server.hasClients else { return }
+            let now = CACurrentMediaTime()
+            if now - lastFrameTime < (1.0 / server.targetFPS) { return }
+            lastFrameTime = now
+
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+
+            if let orientationVal = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
+               let rawOrientation = CGImagePropertyOrientation(rawValue: orientationVal.uint32Value) {
+                let fixedOrientation: CGImagePropertyOrientation
+                switch rawOrientation {
+                case .left: fixedOrientation = .right
+                case .right: fixedOrientation = .left
+                case .down: fixedOrientation = .down
+                default: fixedOrientation = .up
+                }
+                if fixedOrientation != .up {
+                    ciImage = ciImage.oriented(fixedOrientation)
+                }
+            }
+
+            let maxDimension = server.maxResolution
+            let scale = min(1.0, maxDimension / max(ciImage.extent.width, ciImage.extent.height))
+            if scale < 1.0 {
+                ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            if let jpegData = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.65]) {
+                server.broadcast(jpegData)
+            }
+
+        case .audioApp:
+            guard server.hasAudioClients else { return }
+            guard let pcmData = convertAudioToInt16Stereo(sampleBuffer) else { return }
+            server.broadcastAudio(pcmData)
+
+        default:
+            break
+        }
+    }
+
+    private func convertAudioToInt16Stereo(_ sampleBuffer: CMSampleBuffer) -> Data? {
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+            return nil
+        }
+
+        guard let inputFormat = AVAudioFormat(streamDescription: asbd) else { return nil }
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frameCount > 0, let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frameCount) else {
+            return nil
+        }
+        inputBuffer.frameLength = frameCount
+
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: inputBuffer.mutableAudioBufferList
+        )
+        guard status == noErr else { return nil }
+
+        if audioConverter == nil || audioConverter?.inputFormat != inputFormat {
+            audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
+        }
+        guard let converter = audioConverter else { return nil }
+
+        let ratio = targetFormat.sampleRate / inputFormat.sampleRate
+        let outCapacity = AVAudioFrameCount(Double(frameCount) * ratio) + 64
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outCapacity) else {
+            return nil
+        }
+
+        var error: NSError?
+        var inputProvided = false
+        converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+            if inputProvided {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            inputProvided = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+
+        guard error == nil, outputBuffer.frameLength > 0,
+              let int16Data = outputBuffer.int16ChannelData else {
+            return nil
+        }
+
+        let byteCount = Int(outputBuffer.frameLength) * 4
+        return Data(bytes: int16Data, count: byteCount)
+    }
+}
