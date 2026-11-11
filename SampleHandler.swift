@@ -17,35 +17,13 @@ private let pageHTML = #"""
   #v{width:100vw;height:100vh;object-fit:contain;display:block}
   #b{position:fixed;top:16px;right:16px;padding:14px 22px;font-size:20px;border:0;
      border-radius:12px;background:#2d7cff;color:#fff;opacity:.9}
-  #q{position:fixed;top:16px;left:16px;opacity:.85}
-  #q button{padding:12px 18px;margin-right:8px;font-size:18px;border:0;border-radius:10px;
-     background:#444;color:#fff}
-  #q button.on{background:#2d7cff}
 </style>
 </head>
 <body>
-<img id="v">
-<div id="q">
-  <button data-p="3">1 Veloce</button><button data-p="2">2 Normale</button><button data-p="1">3 Qualit&agrave;</button>
-</div>
+<img id="v" src="/stream">
 <button id="b">Attiva audio</button>
 <script>
 var ctx = null, nextTime = 0, started = false;
-function setPreset(p) {
-  document.getElementById('v').src = '/stream?p=' + p + '&t=' + Date.now();
-  var bs = document.querySelectorAll('#q button');
-  for (var i = 0; i < bs.length; i++) {
-    bs[i].className = (bs[i].getAttribute('data-p') === String(p)) ? 'on' : '';
-  }
-}
-(function () {
-  var m = /[?&]p=([123])/.exec(location.search);
-  setPreset(m ? m[1] : 2);
-  var bs = document.querySelectorAll('#q button');
-  for (var i = 0; i < bs.length; i++) {
-    bs[i].addEventListener('click', function (e) { e.stopPropagation(); setPreset(this.getAttribute('data-p')); });
-  }
-})();
 async function startAudio() {
   if (started) return;
   started = true;
@@ -90,12 +68,7 @@ async function startAudio() {
   }
 }
 document.getElementById('b').addEventListener('click', startAudio);
-document.addEventListener('keydown', function (e) {
-  if (e.key === '1') { setPreset(3); return; }
-  if (e.key === '2') { setPreset(2); return; }
-  if (e.key === '3') { setPreset(1); return; }
-  startAudio();
-});
+document.addEventListener('keydown', startAudio);
 </script>
 </body>
 </html>
@@ -110,21 +83,6 @@ final class MJPEGServer {
     private var audioPending = 0
     private let lock = NSLock()
     private let sendQueue = DispatchQueue(label: "mirrortv.send")
-
-    // Qualità del video (cambia dalla TV con i pulsanti 1/2/3)
-    var maxSide: CGFloat = 960
-    var quality: Double = 0.4
-    var minInterval: Double = 1.0 / 20.0
-
-    private func applyPreset(_ path: String) {
-        guard let r = path.range(of: "p="), let c = path[r.upperBound...].first else { return }
-        switch c {
-        case "1": maxSide = 1280; quality = 0.5; minInterval = 1.0 / 15.0
-        case "2": maxSide = 960; quality = 0.4; minInterval = 1.0 / 20.0
-        case "3": maxSide = 640; quality = 0.35; minInterval = 1.0 / 25.0
-        default: break
-        }
-    }
     private let audioQueue = DispatchQueue(label: "mirrortv.audio")
 
     var hasClients: Bool {
@@ -201,11 +159,6 @@ final class MJPEGServer {
         let path = parts.count > 1 ? String(parts[1]) : "/"
 
         if path.hasPrefix("/stream") {
-            applyPreset(path)
-            var nodelay: Int32 = 1
-            setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &nodelay, socklen_t(MemoryLayout<Int32>.size))
-            var sndbuf: Int32 = 131072
-            setsockopt(client, SOL_SOCKET, SO_SNDBUF, &sndbuf, socklen_t(MemoryLayout<Int32>.size))
             let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
             if sendAll(client, Data(head.utf8)) {
                 lock.lock(); clients.append(client); lock.unlock()
@@ -289,7 +242,7 @@ final class MJPEGServer {
 
 class SampleHandler: RPBroadcastSampleHandler {
     private let server = MJPEGServer()
-    private let ciContext = CIContext(options: [.cacheIntermediates: false])
+    private let ciContext = CIContext()
     private var lastFrame: CFAbsoluteTime = 0
 
     // Audio: converto qualunque formato in PCM 16 bit, stereo, 48000 Hz
@@ -321,8 +274,9 @@ class SampleHandler: RPBroadcastSampleHandler {
     private func handleVideo(_ sampleBuffer: CMSampleBuffer) {
         guard server.hasClients else { return }
 
+        // Circa 12 fotogrammi al secondo
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastFrame >= server.minInterval else { return }
+        guard now - lastFrame >= 0.08 else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFrame = now
 
@@ -345,13 +299,13 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
 
         let longest = max(image.extent.width, image.extent.height)
-        let scale = min(1.0, server.maxSide / longest)
+        let scale = min(1.0, 1280.0 / longest)
         if scale < 1.0 {
             image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         }
 
         let options: [CIImageRepresentationOption: Any] = [
-            CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): server.quality
+            CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.5
         ]
         if let jpeg = ciContext.jpegRepresentation(of: image,
                                                    colorSpace: CGColorSpaceCreateDeviceRGB(),
