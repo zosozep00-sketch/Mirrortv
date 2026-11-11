@@ -25,8 +25,6 @@ targets:
         CFBundleDisplayName: Mirror TV
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
-        NSBonjourServices:
-          - _mirrortv._tcp
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     settings:
