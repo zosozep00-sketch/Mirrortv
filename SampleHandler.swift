@@ -2,7 +2,7 @@ import ReplayKit
 import CoreImage
 import ImageIO
 import AVFoundation
-import Network
+import Darwin
 
 private let pageHTML = #"""
 <!doctype html>
@@ -12,10 +12,39 @@ private let pageHTML = #"""
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mirror TV</title>
 <style>
-  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:sans-serif}
-  #v{width:100vw;height:100vh;object-fit:contain;display:block}
-  #b{position:fixed;top:16px;right:16px;padding:14px 22px;font-size:20px;border:0;
-     border-radius:12px;background:#2d7cff;color:#fff;opacity:.9}
+  html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    background:#000;
+    overflow:hidden;
+    font-family:sans-serif;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  #v{
+    max-width:100vw;
+    max-height:100vh;
+    width:auto;
+    height:auto;
+    object-fit:contain;
+    display:block;
+  }
+  #b{
+    position:fixed;
+    top:16px;
+    right:16px;
+    padding:14px 22px;
+    font-size:20px;
+    border:0;
+    border-radius:12px;
+    background:#2d7cff;
+    color:#fff;
+    opacity:.9;
+    cursor:pointer;
+    z-index:10;
+  }
 </style>
 </head>
 <body>
@@ -28,7 +57,7 @@ async function startAudio() {
   started = true;
   var btn = document.getElementById('b');
   try {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await ctx.resume();
     var res = await fetch('/audio');
     var reader = res.body.getReader();
@@ -48,8 +77,8 @@ async function startAudio() {
       var ab = ctx.createBuffer(2, n, 48000);
       var L = ab.getChannelData(0), R = ab.getChannelData(1);
       for (var i = 0; i < n; i++) {
-        L[i] = i16[2 * i] / 32768;
-        R[i] = i16[2 * i + 1] / 32768;
+        L[i] = i16[2 * i] / 32768.0;
+        R[i] = i16[2 * i + 1] / 32768.0;
       }
       var now = ctx.currentTime;
       if (nextTime < now + 0.05) nextTime = now + 0.15;
@@ -73,177 +102,201 @@ document.addEventListener('keydown', startAudio);
 </html>
 """#
 
-final class NWStreamServer {
-    private var listener: NWListener?
-    private var videoClients: [NWConnection] = []
-    private var audioClients: [NWConnection] = []
-    private let lock = NSLock()
-    private let queue = DispatchQueue(label: "mirrortv.nwserver")
+final class MJPEGServer {
+    private var listenFD: Int32 = -1
+    private var clients: [Int32] = []
+    private var audioClients: [Int32] = []
     private var busy = false
+    private var audioPending = 0
+    private let lock = NSLock()
+    private let sendQueue = DispatchQueue(label: "mirrortv.send")
+    private let audioQueue = DispatchQueue(label: "mirrortv.audio")
 
-    func start(port: UInt16 = 8080) {
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
-        let params = NWParameters.tcp
-        params.allowLocalEndpointReuse = true
+    var hasClients: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !clients.isEmpty
+    }
 
-        do {
-            let listener = try NWListener(using: params, on: nwPort)
-            listener.newConnectionHandler = { [weak self] conn in
-                self?.handleNewConnection(conn)
+    var hasAudioClients: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !audioClients.isEmpty
+    }
+
+    func start(port: UInt16) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return }
+
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr = in_addr(s_addr: 0)
+
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
-            listener.start(queue: queue)
-            self.listener = listener
-        } catch {
-            print("Errore avvio NWListener: \(error)")
         }
+        guard bound == 0, listen(fd, 8) == 0 else {
+            close(fd)
+            return
+        }
+        listenFD = fd
+        Thread.detachNewThread { [self] in acceptLoop(fd) }
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        if listenFD >= 0 { close(listenFD); listenFD = -1 }
         lock.lock()
-        let all = videoClients + audioClients
-        videoClients.removeAll()
+        let all = clients + audioClients
+        clients.removeAll()
         audioClients.removeAll()
         lock.unlock()
-        all.forEach { $0.cancel() }
+        for c in all { close(c) }
     }
 
-    private func handleNewConnection(_ conn: NWConnection) {
-        conn.start(queue: queue)
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, _, error in
-            guard let self = self, let data = data, error == nil else {
-                conn.cancel()
-                return
+    private func acceptLoop(_ fd: Int32) {
+        while true {
+            let client = accept(fd, nil, nil)
+            if client < 0 {
+                if errno == EINTR { continue }
+                break
             }
-            let req = String(decoding: data, as: UTF8.self)
-            let parts = req.split(separator: " ")
-            let path = parts.count > 1 ? String(parts[1]) : "/"
+            DispatchQueue.global().async { [self] in handle(client) }
+        }
+    }
 
-            if path.hasPrefix("/stream") {
-                let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
-                conn.send(content: Data(head.utf8), completion: .contentProcessed { err in
-                    if err == nil {
-                        self.lock.lock()
-                        self.videoClients.append(conn)
-                        self.lock.unlock()
-                    } else {
-                        conn.cancel()
-                    }
-                })
-            } else if path.hasPrefix("/audio") {
-                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
-                conn.send(content: Data(head.utf8), completion: .contentProcessed { err in
-                    if err == nil {
-                        self.lock.lock()
-                        self.audioClients.append(conn)
-                        self.lock.unlock()
-                    } else {
-                        conn.cancel()
-                    }
-                })
+    private func handle(_ client: Int32) {
+        var yes: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var tv = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        var buf = [UInt8](repeating: 0, count: 2048)
+        let n = recv(client, &buf, buf.count, 0)
+        guard n > 0 else { close(client); return }
+
+        let request = String(decoding: buf[0..<n], as: UTF8.self)
+        let parts = request.split(separator: " ")
+        let path = parts.count > 1 ? String(parts) : "/"
+
+        if path.hasPrefix("/stream") {
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            if sendAll(client, Data(head.utf8)) {
+                lock.lock(); clients.append(client); lock.unlock()
             } else {
-                let body = Data(pageHTML.utf8)
-                let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
-                var response = Data(head.utf8)
-                response.append(body)
-                conn.send(content: response, completion: .contentProcessed { _ in
-                    conn.cancel()
-                })
+                close(client)
             }
+        } else if path.hasPrefix("/audio") {
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            if sendAll(client, Data(head.utf8)) {
+                lock.lock(); audioClients.append(client); lock.unlock()
+            } else {
+                close(client)
+            }
+        } else {
+            let body = Data(pageHTML.utf8)
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            _ = sendAll(client, Data(head.utf8) + body)
+            close(client)
         }
     }
 
     func broadcast(_ jpeg: Data) {
         lock.lock()
-        if busy || videoClients.isEmpty {
-            lock.unlock()
-            return
-        }
+        if busy || clients.isEmpty { lock.unlock(); return }
         busy = true
-        let clients = videoClients
+        let snapshot = clients
         lock.unlock()
 
-        var packet = Data("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: \(jpeg.count)\r\n\r\n".utf8)
-        packet.append(jpeg)
-        packet.append(Data("\r\n".utf8))
+        sendQueue.async { [self] in
+            var packet = Data("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: \(jpeg.count)\r\n\r\n".utf8)
+            packet.append(jpeg)
+            packet.append(Data("\r\n".utf8))
 
-        let group = DispatchGroup()
-        var deadClients = [ObjectIdentifier]()
-        let deadLock = NSLock()
-
-        for client in clients {
-            group.enter()
-            client.send(content: packet, completion: .contentProcessed { err in
-                if err != nil {
-                    deadLock.lock()
-                    deadClients.append(ObjectIdentifier(client))
-                    deadLock.unlock()
-                    client.cancel()
-                }
-                group.leave()
-            })
-        }
-
-        group.notify(queue: queue) { [weak self] in
-            guard let self = self else { return }
-            self.lock.lock()
-            if !deadClients.isEmpty {
-                let deadSet = Set(deadClients)
-                self.videoClients.removeAll { deadSet.contains(ObjectIdentifier($0)) }
+            var dead = Set<Int32>()
+            for fd in snapshot where !sendAll(fd, packet) {
+                dead.insert(fd)
             }
-            self.busy = false
-            self.lock.unlock()
+
+            lock.lock()
+            clients.removeAll { dead.contains($0) }
+            busy = false
+            lock.unlock()
+            for fd in dead { close(fd) }
         }
     }
 
     func broadcastAudio(_ pcm: Data) {
         lock.lock()
-        let clients = audioClients
+        if audioClients.isEmpty || audioPending > 20 { lock.unlock(); return }
+        audioPending += 1
+        let snapshot = audioClients
         lock.unlock()
-        guard !clients.isEmpty else { return }
 
-        for client in clients {
-            client.send(content: pcm, completion: .contentProcessed { [weak self] err in
-                if err != nil {
-                    client.cancel()
-                    self?.lock.lock()
-                    self?.audioClients.removeAll { $0 === client }
-                    self?.lock.unlock()
-                }
-            })
+        audioQueue.async { [self] in
+            var dead = Set<Int32>()
+            for fd in snapshot where !sendAll(fd, pcm) {
+                dead.insert(fd)
+            }
+
+            lock.lock()
+            audioClients.removeAll { dead.contains($0) }
+            audioPending -= 1
+            lock.unlock()
+            for fd in dead { close(fd) }
+        }
+    }
+
+    private func sendAll(_ fd: Int32, _ data: Data) -> Bool {
+        return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            var sent = 0
+            while sent < data.count {
+                let n = send(fd, base + sent, data.count - sent, 0)
+                if n <= 0 { return false }
+                sent += n
+            }
+            return true
         }
     }
 }
 
 class SampleHandler: RPBroadcastSampleHandler {
-    private let server = NWStreamServer()
+    private let server = MJPEGServer()
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var lastFrameTime: CFTimeInterval = 0
+    private var audioConverter: AVAudioConverter?
+    private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 2, interleaved: true)!
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
         server.start(port: 8080)
     }
 
     override func broadcastPaused() {}
-
     override func broadcastResumed() {}
 
     override func broadcastFinished() {
         server.stop()
+        audioConverter = nil
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
         switch sampleBufferType {
         case .video:
+            guard server.hasClients else { return }
             let now = CACurrentMediaTime()
-            if now - lastFrameTime < (1.0 / 24.0) { return } // Max 24 fps per non superare i 50MB di RAM
+            if now - lastFrameTime < (1.0 / 30.0) { return }
             lastFrameTime = now
 
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-            // Ridimensiona per fluidità e limite memoria iOS
             let maxDimension: CGFloat = 1280
             let scale = min(1.0, maxDimension / max(ciImage.extent.width, ciImage.extent.height))
             if scale < 1.0 {
@@ -251,22 +304,3 @@ class SampleHandler: RPBroadcastSampleHandler {
             }
 
             let colorSpace = CGColorSpaceCreateDeviceRGB()
-            if let jpegData = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.6]) {
-                server.broadcast(jpegData)
-            }
-
-        case .audioApp:
-            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
-            var length = 0
-            var dataPointer: UnsafeMutablePointer<Int8>?
-            if CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer) == kCMBlockBufferNoErr,
-               let ptr = dataPointer, length > 0 {
-                let data = Data(bytes: ptr, count: length)
-                server.broadcastAudio(data)
-            }
-
-        default:
-            break
-        }
-    }
-}
