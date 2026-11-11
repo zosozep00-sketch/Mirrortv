@@ -709,6 +709,42 @@ struct WebBrowserCastView: View {
     }
 }
 
+// MARK: - Selettore file
+
+// Apre il selettore di iOS e fa COPIARE il file dentro l'app: così non servono
+// permessi speciali e funziona anche con app installate fuori dall'App Store.
+struct DocumentPicker: UIViewControllerRepresentable {
+    let contentTypes: [UTType]
+    var allowsMultiple: Bool = false
+    var onPick: ([URL]) -> Void
+    var onCancel: () -> Void = {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: true)
+        picker.allowsMultipleSelection = allowsMultiple
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: DocumentPicker
+
+        init(_ parent: DocumentPicker) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            parent.onPick(urls)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onCancel()
+        }
+    }
+}
+
 // MARK: - Musica
 
 struct MusicPlayerView: View {
@@ -826,22 +862,29 @@ struct MusicPlayerView: View {
             }
             .padding(.vertical)
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result {
-                let wasEmpty = tracks.isEmpty
-                for u in urls { _ = u.startAccessingSecurityScopedResource() }
-                tracks.append(contentsOf: urls)
-                if wasEmpty {
-                    currentIndex = 0
-                    playTrack(at: 0)
-                }
-            }
+        .sheet(isPresented: $showFileImporter) {
+            DocumentPicker(contentTypes: [.audio], allowsMultiple: true,
+                           onPick: { urls in
+                               showFileImporter = false
+                               addTracks(urls)
+                           },
+                           onCancel: { showFileImporter = false })
         }
         .onReceive(timer) { _ in
             if let p = player, p.isPlaying {
                 progress = p.currentTime
                 duration = p.duration
             }
+        }
+    }
+
+    func addTracks(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let wasEmpty = tracks.isEmpty
+        tracks.append(contentsOf: urls)
+        if wasEmpty {
+            currentIndex = 0
+            playTrack(at: 0)
         }
     }
 
@@ -968,18 +1011,21 @@ struct GalleryMediaCastView: View {
                 presentPlayerSoon()
             })
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.movie, .video, .image], allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                _ = url.startAccessingSecurityScopedResource()
-                if let img = UIImage(contentsOfFile: url.path) {
-                    selectedImage = img
-                    selectedVideoURL = nil
-                } else {
-                    selectedVideoURL = url
-                    selectedImage = nil
-                }
-                presentPlayerSoon()
-            }
+        .sheet(isPresented: $showFileImporter) {
+            DocumentPicker(contentTypes: [.movie, .video, .image],
+                           onPick: { urls in
+                               showFileImporter = false
+                               guard let url = urls.first else { return }
+                               if let img = UIImage(contentsOfFile: url.path) {
+                                   selectedImage = img
+                                   selectedVideoURL = nil
+                               } else {
+                                   selectedVideoURL = url
+                                   selectedImage = nil
+                               }
+                               presentPlayerSoon()
+                           },
+                           onCancel: { showFileImporter = false })
         }
         .sheet(isPresented: $showPlayerSheet) {
             if let vid = selectedVideoURL {
@@ -1146,13 +1192,15 @@ struct IPTVCastView: View {
                 .listStyle(.plain)
             }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.data, .text], allowsMultipleSelection: false) { res in
-            if case .success(let urls) = res, let u = urls.first {
-                _ = u.startAccessingSecurityScopedResource()
-                if let text = try? String(contentsOf: u, encoding: .utf8) {
-                    parseM3U(text)
-                }
-            }
+        .sheet(isPresented: $showFileImporter) {
+            DocumentPicker(contentTypes: [.data, .text],
+                           onPick: { urls in
+                               showFileImporter = false
+                               if let u = urls.first, let text = try? String(contentsOf: u, encoding: .utf8) {
+                                   parseM3U(text)
+                               }
+                           },
+                           onCancel: { showFileImporter = false })
         }
         .sheet(item: $selectedChannel) { ch in
             if let url = URL(string: ch.url) {
