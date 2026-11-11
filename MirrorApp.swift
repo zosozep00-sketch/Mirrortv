@@ -30,7 +30,7 @@ func localIPAddress() -> String? {
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 90, height: 90))
-        picker.preferredExtension = "com.example.mirrortv.ext"
+        picker.preferredExtension = "com.example.mirrortvb.ext"
         picker.showsMicrophoneButton = false
         return picker
     }
