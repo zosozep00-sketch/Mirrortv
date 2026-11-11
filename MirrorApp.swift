@@ -1,24 +1,5 @@
 import SwiftUI
 import ReplayKit
-import Network
-
-// Fa comparire la richiesta di iOS per l'accesso alla rete locale
-final class LocalNetworkPrompt {
-    private var browser: NWBrowser?
-
-    func trigger() {
-        browser?.cancel()
-        let params = NWParameters()
-        params.includePeerToPeer = true
-        let b = NWBrowser(for: .bonjour(type: "_mirrortv._tcp", domain: nil), using: params)
-        b.stateUpdateHandler = { _ in }
-        b.browseResultsChangedHandler = { _, _ in }
-        b.start(queue: .main)
-        browser = b
-    }
-}
-
-let localNetworkPrompt = LocalNetworkPrompt()
 
 // Indirizzo IP dell'iPhone sul Wi-Fi (o sull'hotspot)
 func localIPAddress() -> String? {
@@ -110,11 +91,6 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
             }
 
-            Button("Consenti rete locale") {
-                localNetworkPrompt.trigger()
-            }
-            .buttonStyle(.borderedProminent)
-
             Text("La TV e l'iPhone devono essere sulla stessa rete Wi-Fi.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
@@ -122,10 +98,7 @@ struct ContentView: View {
             Spacer()
         }
         .padding()
-        .onAppear {
-            ip = localIPAddress()
-            localNetworkPrompt.trigger()
-        }
+        .onAppear { ip = localIPAddress() }
     }
 }
 
