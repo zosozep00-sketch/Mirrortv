@@ -8,7 +8,7 @@ settings:
     SWIFT_VERSION: "5.0"
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGNING_REQUIRED: NO
-    CODE_SIGNING_IDENTITY: ""
+    CODE_SIGN_IDENTITY: ""
 targets:
   MirrorTV:
     type: application
@@ -17,7 +17,6 @@ targets:
       - path: .
         includes:
           - MirrorApp.swift
-          - Assets.xcassets
     dependencies:
       - target: MirrorTVExt
     info:
@@ -26,21 +25,19 @@ targets:
         CFBundleDisplayName: Mirror TV
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
-        NSPhotoLibraryUsageDescription: Serve per selezionare foto e video dalla galleria da proiettare sulla TV.
         NSBonjourServices:
           - _http._tcp
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        LSApplicationQueriesSchemes:
-          - spotify
+        UIBackgroundModes:
+          - audio
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortvb
-        MARKETING_VERSION: "3.0"
-        CURRENT_PROJECT_VERSION: "3"
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
   MirrorTVExt:
     type: app-extension
     platform: iOS
@@ -52,9 +49,6 @@ targets:
       path: Ext-Info.plist
       properties:
         CFBundleDisplayName: Mirror TV
-        NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
-        NSBonjourServices:
-          - _http._tcp
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
@@ -62,5 +56,5 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortvb.ext
-        MARKETING_VERSION: "3.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
