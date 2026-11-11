@@ -1,0 +1,54 @@
+name: MirrorTV
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+targets:
+  MirrorTV:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        includes:
+          - MirrorApp.swift
+    dependencies:
+      - target: MirrorTVExt
+    info:
+      path: App-Info.plist
+      properties:
+        CFBundleDisplayName: Mirror TV
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortv
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+  MirrorTVExt:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: .
+        includes:
+          - SampleHandler.swift
+    info:
+      path: Ext-Info.plist
+      properties:
+        CFBundleDisplayName: Mirror TV
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortv.ext
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
