@@ -4,103 +4,50 @@ import ImageIO
 import AVFoundation
 import Darwin
 
-private let pageHTML = #"""
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mirror TV</title>
-<style>
-  html,body{
-    margin:0;
-    width:100%;
-    height:100%;
-    background:#000;
-    overflow:hidden;
-    font-family:sans-serif;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-  }
-  #v{
-    max-width:100vw;
-    max-height:100vh;
-    width:auto;
-    height:auto;
-    object-fit:contain;
-    display:block;
-  }
-  #b{
-    position:fixed;
-    top:16px;
-    right:16px;
-    padding:14px 22px;
-    font-size:20px;
-    border:0;
-    border-radius:12px;
-    background:#2d7cff;
-    color:#fff;
-    opacity:.9;
-    cursor:pointer;
-    z-index:10;
-  }
-</style>
-</head>
-<body>
-<img id="v" src="/stream">
-<button id="b">Attiva audio</button>
-<script>
-var ctx = null, nextTime = 0, started = false;
-async function startAudio() {
-  if (started) return;
-  started = true;
-  var btn = document.getElementById('b');
-  try {
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-    await ctx.resume();
-    var res = await fetch('/audio');
-    var reader = res.body.getReader();
-    var left = new Uint8Array(0);
-    btn.style.display = 'none';
-    while (true) {
-      var r = await reader.read();
-      if (r.done) break;
-      var buf = new Uint8Array(left.length + r.value.length);
-      buf.set(left);
-      buf.set(r.value, left.length);
-      var usable = buf.length - (buf.length % 4);
-      left = buf.slice(usable);
-      if (usable === 0) continue;
-      var n = usable / 4;
-      var i16 = new Int16Array(buf.buffer, 0, usable / 2);
-      var ab = ctx.createBuffer(2, n, 48000);
-      var L = ab.getChannelData(0), R = ab.getChannelData(1);
-      for (var i = 0; i < n; i++) {
-        L[i] = i16[2 * i] / 32768.0;
-        R[i] = i16[2 * i + 1] / 32768.0;
-      }
-      var now = ctx.currentTime;
-      if (nextTime < now + 0.05) nextTime = now + 0.15;
-      if (nextTime > now + 0.8) continue;
-      var src = ctx.createBufferSource();
-      src.buffer = ab;
-      src.connect(ctx.destination);
-      src.start(nextTime);
-      nextTime += ab.duration;
-    }
-  } catch (e) {
-    started = false;
-    btn.style.display = 'block';
-    btn.textContent = 'Audio non disponibile, riprova';
-  }
-}
-document.getElementById('b').addEventListener('click', startAudio);
-document.addEventListener('keydown', startAudio);
-</script>
-</body>
-</html>
-"""#
+private let pageHTML = [
+    "<!doctype html><html><head><meta charset='utf-8'>",
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+    "<title>Mirror TV</title><style>",
+    "*{box-sizing:border-box;user-select:none}",
+    "html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:sans-serif;display:flex;align-items:center;justify-content:center}",
+    "#v{max-width:100vw;max-height:100vh;width:auto;height:auto;object-fit:contain;display:block;transition:transform .2s ease}",
+    "#v.fill{width:100vw;height:100vh;object-fit:cover}",
+    "#controls{position:fixed;bottom:0;left:0;right:0;padding:24px 20px 16px;background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;align-items:center;justify-content:space-between;gap:12px;opacity:1;transition:opacity .3s ease;z-index:20}",
+    "#controls.hidden{opacity:0;pointer-events:none}",
+    ".group{display:flex;align-items:center;gap:10px}",
+    ".btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 14px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer}",
+    ".btn:hover{background:rgba(255,255,255,.28)}",
+    ".btn.active{background:#2d7cff;border-color:#2d7cff}",
+    ".live-badge{display:flex;align-items:center;gap:6px;color:#fff;font-size:13px;font-weight:600;padding:6px 10px}",
+    ".dot{width:8px;height:8px;background:#ff3b30;border-radius:50%;animation:pulse 1.5s infinite}",
+    "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}",
+    "#settings-menu{position:fixed;bottom:72px;right:20px;background:rgba(28,28,30,.95);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px;width:240px;color:#fff;display:none;flex-direction:column;gap:12px;z-index:30}",
+    "#settings-menu.open{display:flex}",
+    ".menu-row{display:flex;justify-content:space-between;align-items:center;font-size:14px}",
+    "select{background:#3a3a3c;color:#fff;border:none;padding:6px 10px;border-radius:6px;font-size:13px;outline:none}",
+    "</style></head><body>",
+    "<img id='v' src='/stream'>",
+    "<div id='settings-menu'>",
+    "<div class='menu-row'><span>Qualità</span><select id='sel-res' onchange='updateConfig()'><option value='1920'>1080p (Alta)</option><option value='1280' selected>720p (Media)</option><option value='854'>480p (Bassa)</option></select></div>",
+    "<div class='menu-row'><span>Fluidità</span><select id='sel-fps' onchange='updateConfig()'><option value='60'>60 FPS</option><option value='30' selected>30 FPS</option><option value='15'>15 FPS</option></select></div>",
+    "<div class='menu-row'><span>Proporzioni</span><select id='sel-fit' onchange='toggleFit(this.value)'><option value='contain' selected>Adatta</option><option value='fill'>Riempi</option></select></div>",
+    "</div>",
+    "<div id='controls'>",
+    "<div class='group'><div class='live-badge'><span class='dot'></span> LIVE</div><button id='btn-audio' class='btn' onclick='toggleAudio()'>🔇 Attiva audio</button></div>",
+    "<div class='group'><button class='btn' onclick='rotateVideo()'>↻ Ruota</button><button class='btn' onclick='toggleMenu()'>⚙️ Impostazioni</button><button class='btn' onclick='toggleFullscreen()'>⛶ Schermo intero</button></div>",
+    "</div>",
+    "<script>",
+    "var ctx=null,nextTime=0,audioRunning=false,audioAbort=null,rotation=0,hideTimer=null;",
+    "function showControls(){var c=document.getElementById('controls');c.classList.remove('hidden');clearTimeout(hideTimer);hideTimer=setTimeout(function(){if(!document.getElementById('settings-menu').classList.contains('open'))c.classList.add('hidden')},3000)}",
+    "document.addEventListener('mousemove',showControls);document.addEventListener('touchstart',showControls);showControls();",
+    "function toggleMenu(){document.getElementById('settings-menu').classList.toggle('open')}",
+    "function toggleFit(m){var i=document.getElementById('v');if(m==='fill')i.classList.add('fill');else i.classList.remove('fill')}",
+    "function rotateVideo(){rotation=(rotation+90)%360;document.getElementById('v').style.transform='rotate('+rotation+'deg)'}",
+    "function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(function(){});else document.exitFullscreen().catch(function(){})}",
+    "function updateConfig(){var r=document.getElementById('sel-res').value,f=document.getElementById('sel-fps').value;fetch('/config?res='+r+'&fps='+f).catch(function(){})}",
+    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio attivo';b.classList.add('active');audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var n=u/4,i16=new Int16Array(buf.buffer,0,u/2),ab=ctx.createBuffer(2,n,48000),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.15;if(nextTime>now+0.8)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova audio';b.classList.remove('active')}}}",
+    "</script></body></html>"
+].joined()
 
 final class MJPEGServer {
     private var listenFD: Int32 = -1
@@ -111,6 +58,9 @@ final class MJPEGServer {
     private let lock = NSLock()
     private let sendQueue = DispatchQueue(label: "mirrortv.send")
     private let audioQueue = DispatchQueue(label: "mirrortv.audio")
+
+    var maxResolution: CGFloat = 1280
+    var targetFPS: Double = 30.0
 
     var hasClients: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -183,7 +133,7 @@ final class MJPEGServer {
 
         let request = String(decoding: buf[0..<n], as: UTF8.self)
         let parts = request.split(separator: " ")
-        let path = parts.count > 1 ? String(parts) : "/"
+        let path = parts.count > 1 ? String(parts[1]) : "/"
 
         if path.hasPrefix("/stream") {
             let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
@@ -199,6 +149,21 @@ final class MJPEGServer {
             } else {
                 close(client)
             }
+        } else if path.hasPrefix("/config") {
+            if let comps = URLComponents(string: path), let items = comps.queryItems {
+                lock.lock()
+                for item in items {
+                    if item.name == "res", let val = Double(item.value ?? "") {
+                        maxResolution = CGFloat(val)
+                    } else if item.name == "fps", let val = Double(item.value ?? ""), val > 0 {
+                        targetFPS = val
+                    }
+                }
+                lock.unlock()
+            }
+            let head = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+            _ = sendAll(client, Data(head.utf8))
+            close(client)
         } else {
             let body = Data(pageHTML.utf8)
             let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
@@ -291,16 +256,83 @@ class SampleHandler: RPBroadcastSampleHandler {
         case .video:
             guard server.hasClients else { return }
             let now = CACurrentMediaTime()
-            if now - lastFrameTime < (1.0 / 30.0) { return }
+            if now - lastFrameTime < (1.0 / server.targetFPS) { return }
             lastFrameTime = now
 
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-            let maxDimension: CGFloat = 1280
+            let maxDimension = server.maxResolution
             let scale = min(1.0, maxDimension / max(ciImage.extent.width, ciImage.extent.height))
             if scale < 1.0 {
                 ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             }
 
             let colorSpace = CGColorSpaceCreateDeviceRGB()
+            if let jpegData = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.65]) {
+                server.broadcast(jpegData)
+            }
+
+        case .audioApp:
+            guard server.hasAudioClients else { return }
+            guard let pcmData = convertAudioToInt16Stereo(sampleBuffer) else { return }
+            server.broadcastAudio(pcmData)
+
+        default:
+            break
+        }
+    }
+
+    private func convertAudioToInt16Stereo(_ sampleBuffer: CMSampleBuffer) -> Data? {
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+            return nil
+        }
+
+        guard let inputFormat = AVAudioFormat(streamDescription: asbd) else { return nil }
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frameCount > 0, let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frameCount) else {
+            return nil
+        }
+        inputBuffer.frameLength = frameCount
+
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: inputBuffer.mutableAudioBufferList
+        )
+        guard status == noErr else { return nil }
+
+        if audioConverter == nil || audioConverter?.inputFormat != inputFormat {
+            audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
+        }
+        guard let converter = audioConverter else { return nil }
+
+        let ratio = targetFormat.sampleRate / inputFormat.sampleRate
+        let outCapacity = AVAudioFrameCount(Double(frameCount) * ratio) + 64
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outCapacity) else {
+            return nil
+        }
+
+        var error: NSError?
+        var inputProvided = false
+        converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+            if inputProvided {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            inputProvided = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+
+        guard error == nil, outputBuffer.frameLength > 0,
+              let int16Data = outputBuffer.int16ChannelData else {
+            return nil
+        }
+
+        let byteCount = Int(outputBuffer.frameLength) * 4
+        return Data(bytes: int16Data[0], count: byteCount)
+    }
+}
