@@ -1,4 +1,8 @@
-import ReplayKit
+import os
+
+os.makedirs("generated", exist_ok=True)
+
+swift_code = """import ReplayKit
 import CoreImage
 import ImageIO
 import AVFoundation
@@ -11,7 +15,6 @@ private let pageHTML = [
     "*{box-sizing:border-box;user-select:none}",
     "html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center}",
     "#v{width:100vw;height:100vh;object-fit:contain;display:block;transition:transform .25s ease}",
-    "#v.zoomed{transform:scale(1.18)}",
     "#brand{position:fixed;top:18px;left:22px;display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(18,18,22,.78);border:1px solid rgba(255,255,255,.15);border-radius:14px;backdrop-filter:blur(10px);z-index:25;transition:opacity .3s ease}",
     "#brand.hidden{opacity:0;pointer-events:none}",
     ".brand-icon{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#00f2fe,#ff4b2b);display:flex;align-items:center;justify-content:center;box-shadow:0 0 12px rgba(0,242,254,.5)}",
@@ -54,7 +57,7 @@ private let pageHTML = [
     "function rotateVideo(){rotation=(rotation+90)%360;applyTransform()}",
     "function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(function(){});else document.exitFullscreen().catch(function(){})}",
     "function updateConfig(){var r=document.getElementById('sel-res').value,f=document.getElementById('sel-fps').value;fetch('/config?res='+r+'&fps='+f).catch(function(){})}",
-    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio attivo';b.classList.add('active');audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var aligned=new Uint8Array(u);aligned.set(buf.subarray(0,u));var n=u/4,i16=new Int16Array(aligned.buffer),ab=ctx.createBuffer(2,n,48000),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.25;if(nextTime>now+1.0)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova audio';b.classList.remove('active')}}}",
+    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio attivo';b.classList.add('active');audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)();await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0),sr=44100;while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var dv=new DataView(buf.buffer,0,u),n=u/4,ab=ctx.createBuffer(2,n,sr),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=dv.getInt16(i*4,true)/32768.0;R[i]=dv.getInt16(i*4+2,true)/32768.0}var now=ctx.currentTime;if(nextTime<now+0.04)nextTime=now+0.20;if(nextTime>now+1.2)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(ctx.destination);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova audio';b.classList.remove('active')}}}",
     "</script></body></html>"
 ].joined()
 
@@ -145,14 +148,14 @@ final class MJPEGServer {
         let path = parts.count > 1 ? String(parts[1]) : "/"
 
         if path.hasPrefix("/stream") {
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 200 OK\\r\\nContent-Type: multipart/x-mixed-replace; boundary=frame\\r\\nCache-Control: no-cache\\r\\nConnection: close\\r\\n\\r\\n"
             if sendAll(client, Data(head.utf8)) {
                 lock.lock(); clients.append(client); lock.unlock()
             } else {
                 close(client)
             }
         } else if path.hasPrefix("/audio") {
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 200 OK\\r\\nContent-Type: application/octet-stream\\r\\nCache-Control: no-cache\\r\\nConnection: close\\r\\n\\r\\n"
             if sendAll(client, Data(head.utf8)) {
                 lock.lock(); audioClients.append(client); lock.unlock()
             } else {
@@ -170,12 +173,12 @@ final class MJPEGServer {
                 }
                 lock.unlock()
             }
-            let head = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+            let head = "HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nOK"
             _ = sendAll(client, Data(head.utf8))
             close(client)
         } else {
             let body = Data(pageHTML.utf8)
-            let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 200 OK\\r\\nContent-Type: text/html; charset=utf-8\\r\\nContent-Length: \\(body.count)\\r\\nConnection: close\\r\\n\\r\\n"
             _ = sendAll(client, Data(head.utf8) + body)
             close(client)
         }
@@ -189,9 +192,9 @@ final class MJPEGServer {
         lock.unlock()
 
         sendQueue.async { [self] in
-            var packet = Data("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: \(jpeg.count)\r\n\r\n".utf8)
+            var packet = Data("--frame\\r\\nContent-Type: image/jpeg\\r\\nContent-Length: \\(jpeg.count)\\r\\n\\r\\n".utf8)
             packet.append(jpeg)
-            packet.append(Data("\r\n".utf8))
+            packet.append(Data("\\r\\n".utf8))
 
             var dead = Set<Int32>()
             for fd in snapshot where !sendAll(fd, packet) {
@@ -208,7 +211,7 @@ final class MJPEGServer {
 
     func broadcastAudio(_ pcm: Data) {
         lock.lock()
-        if audioClients.isEmpty || audioPending > 20 { lock.unlock(); return }
+        if audioClients.isEmpty || audioPending > 25 { lock.unlock(); return }
         audioPending += 1
         let snapshot = audioClients
         lock.unlock()
@@ -245,8 +248,6 @@ class SampleHandler: RPBroadcastSampleHandler {
     private let server = MJPEGServer()
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var lastFrameTime: CFTimeInterval = 0
-    private var audioConverter: AVAudioConverter?
-    private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 2, interleaved: true)!
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
         server.start(port: 8080)
@@ -257,7 +258,6 @@ class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastFinished() {
         server.stop()
-        audioConverter = nil
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
@@ -298,7 +298,7 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         case .audioApp:
             guard server.hasAudioClients else { return }
-            guard let pcmData = convertAudioToInt16Stereo(sampleBuffer) else { return }
+            guard let pcmData = extractCleanPCM(sampleBuffer) else { return }
             server.broadcastAudio(pcmData)
 
         default:
@@ -306,56 +306,92 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
     }
 
-    private func convertAudioToInt16Stereo(_ sampleBuffer: CMSampleBuffer) -> Data? {
+    // Estrae direttamente i campioni PCM da ReplayKit convertendo Big-Endian -> Little-Endian stereo
+    private func extractCleanPCM(_ sampleBuffer: CMSampleBuffer) -> Data? {
         guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+              let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
             return nil
         }
+        let asbd = asbdPtr.pointee
+        let channels = Int(asbd.mChannelsPerFrame)
+        let isBigEndian = (asbd.mFormatFlags & kAudioFormatFlagIsBigEndian) != 0
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
 
-        guard let inputFormat = AVAudioFormat(streamDescription: asbd) else { return nil }
-        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0, let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frameCount) else {
-            return nil
-        }
-        inputBuffer.frameLength = frameCount
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
+        guard status == kCMBlockBufferNoErr, let ptr = dataPointer, totalLength > 0 else { return nil }
 
-        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-            sampleBuffer,
-            at: 0,
-            frameCount: Int32(frameCount),
-            into: inputBuffer.mutableAudioBufferList
-        )
-        guard status == noErr else { return nil }
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frameCount > 0 else { return nil }
 
-        if audioConverter == nil || audioConverter?.inputFormat != inputFormat {
-            audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
-        }
-        guard let converter = audioConverter else { return nil }
+        var out = Data(capacity: frameCount * 4)
 
-        let ratio = targetFormat.sampleRate / inputFormat.sampleRate
-        let outCapacity = AVAudioFrameCount(Double(frameCount) * ratio) + 64
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outCapacity) else {
-            return nil
-        }
+        if !isFloat && asbd.mBitsPerChannel == 16 {
+            let rawSamples = UnsafeRawPointer(ptr).bindMemory(to: Int16.self, capacity: totalLength / 2)
+            for i in 0..<frameCount {
+                var leftSample: Int16 = 0
+                var rightSample: Int16 = 0
 
-        var error: NSError?
-        var inputProvided = false
-        converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-            if inputProvided {
-                outStatus.pointee = .noDataNow
-                return nil
+                if channels >= 2 {
+                    if isNonInterleaved {
+                        leftSample = rawSamples[i]
+                        rightSample = rawSamples[frameCount + i]
+                    } else {
+                        leftSample = rawSamples[i * channels]
+                        rightSample = rawSamples[i * channels + 1]
+                    }
+                } else {
+                    leftSample = rawSamples[i]
+                    rightSample = leftSample
+                }
+
+                if isBigEndian {
+                    leftSample = Int16(bigEndian: leftSample)
+                    rightSample = Int16(bigEndian: rightSample)
+                }
+
+                var leL = leftSample.littleEndian
+                var leR = rightSample.littleEndian
+                withUnsafeBytes(of: &leL) { out.append(contentsOf: $0) }
+                withUnsafeBytes(of: &leR) { out.append(contentsOf: $0) }
             }
-            inputProvided = true
-            outStatus.pointee = .haveData
-            return inputBuffer
+            return out
+        } else if isFloat && asbd.mBitsPerChannel == 32 {
+            let rawFloats = UnsafeRawPointer(ptr).bindMemory(to: Float32.self, capacity: totalLength / 4)
+            for i in 0..<frameCount {
+                var fL: Float32 = 0
+                var fR: Float32 = 0
+                if channels >= 2 {
+                    if isNonInterleaved {
+                        fL = rawFloats[i]
+                        fR = rawFloats[frameCount + i]
+                    } else {
+                        fL = rawFloats[i * channels]
+                        fR = rawFloats[i * channels + 1]
+                    }
+                } else {
+                    fL = rawFloats[i]
+                    fR = fL
+                }
+                let clampedL = max(-1.0, min(1.0, fL))
+                let clampedR = max(-1.0, min(1.0, fR))
+                var leL = Int16(clampedL * 32767.0).littleEndian
+                var leR = Int16(clampedR * 32767.0).littleEndian
+                withUnsafeBytes(of: &leL) { out.append(contentsOf: $0) }
+                withUnsafeBytes(of: &leR) { out.append(contentsOf: $0) }
+            }
+            return out
         }
 
-        guard error == nil, outputBuffer.frameLength > 0,
-              let int16Data = outputBuffer.int16ChannelData else {
-            return nil
-        }
-
-        let byteCount = Int(outputBuffer.frameLength) * 4
-        return Data(bytes: int16Data, count: byteCount)
+        return nil
     }
 }
+"""
+
+with open("generated/SampleHandler-audiofix.txt", "w", encoding="utf-8") as f:
+    f.write(swift_code)
+
+print("File generato con successo:", os.path.getsize("generated/SampleHandler-audiofix.txt"), "bytes")
