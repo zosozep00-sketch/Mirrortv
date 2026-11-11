@@ -11,85 +11,70 @@ private let pageHTML = [
     "*{box-sizing:border-box;user-select:none}",
     "html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center}",
     "#v{width:100vw;height:100vh;object-fit:contain;display:block;transition:transform .25s ease,filter .25s ease}",
-    "#v.zoom{object-fit:cover}",
+    "#v.zoomed{transform:scale(1.18)}",
     "#v.cinema{filter:contrast(1.08) saturate(1.12)}",
-    "#v.paused{opacity:.55}",
-    "/* Logo in alto a sinistra come YouTube */",
-    "#brand{position:fixed;top:18px;left:22px;display:flex;align-items:center;gap:10px;background:rgba(15,15,15,.72);padding:7px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);z-index:25;transition:opacity .3s ease}",
+    "#brand{position:fixed;top:18px;left:22px;display:flex;align-items:center;gap:10px;background:rgba(15,15,15,.72);border:1px solid rgba(255,255,255,.15);padding:8px 14px;border-radius:10px;color:#fff;z-index:25;backdrop-filter:blur(8px);transition:opacity .3s ease}",
     "#brand.hidden{opacity:0;pointer-events:none}",
-    ".brand-txt{display:flex;flex-direction:column;line-height:1.1}",
-    ".brand-title{color:#fff;font-weight:700;font-size:15px;letter-spacing:.3px}",
-    ".brand-sub{color:#9aa5b4;font-size:11px;font-weight:500}",
-    "/* Barra controlli stile YouTube */",
-    "#controls{position:fixed;bottom:0;left:0;right:0;padding:28px 20px 14px;background:linear-gradient(transparent,rgba(0,0,0,.92));display:flex;flex-direction:column;gap:8px;opacity:1;transition:opacity .3s ease;z-index:20}",
+    "#brand-icon{width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,#ff3b30 50%,#2d7cff 50%);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fff}",
+    "#brand-text{font-size:14px;font-weight:700;letter-spacing:.3px}",
+    "#brand-sub{font-size:11px;color:#aaa;font-weight:500;margin-left:4px}",
+    "#controls{position:fixed;bottom:0;left:0;right:0;padding:28px 22px 16px;background:linear-gradient(transparent,rgba(0,0,0,.9));display:flex;flex-direction:column;gap:10px;opacity:1;transition:opacity .3s ease;z-index:20}",
     "#controls.hidden{opacity:0;pointer-events:none}",
-    "#live-bar{width:100%;height:3px;background:rgba(255,255,255,.25);border-radius:2px;overflow:hidden}",
-    "#live-fill{width:100%;height:100%;background:#ff0033}",
-    "#bar-row{display:flex;align-items:center;justify-content:space-between;gap:10px}",
-    ".group{display:flex;align-items:center;gap:8px}",
-    ".icon-btn{background:transparent;color:#fff;border:0;padding:8px 10px;border-radius:8px;font-size:15px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px}",
-    ".icon-btn:hover{background:rgba(255,255,255,.16)}",
-    ".icon-btn.active{color:#3ea6ff}",
-    ".live-pill{display:flex;align-items:center;gap:6px;color:#fff;font-size:13px;font-weight:600;padding:4px 8px}",
-    ".dot{width:8px;height:8px;background:#ff0033;border-radius:50%;animation:pulse 1.5s infinite}",
-    "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}",
-    "#vol-wrap{display:flex;align-items:center;gap:6px}",
-    "#vol-slider{width:75px;accent-color:#fff;cursor:pointer}",
-    "/* Menu Impostazioni YouTube */",
-    "#settings-menu{position:fixed;bottom:68px;right:20px;background:rgba(20,20,22,.96);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px;width:265px;color:#fff;display:none;flex-direction:column;gap:12px;backdrop-filter:blur(12px);z-index:30;box-shadow:0 8px 28px rgba(0,0,0,.6)}",
+    "#progress{width:100%;height:4px;background:rgba(255,255,255,.25);border-radius:2px;overflow:hidden}",
+    "#progress-bar{width:100%;height:100%;background:#ff3b30}",
+    ".bar-row{display:flex;align-items:center;justify-content:space-between;gap:12px}",
+    ".group{display:flex;align-items:center;gap:10px}",
+    ".btn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.16);padding:8px 13px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;backdrop-filter:blur(6px)}",
+    ".btn:hover{background:rgba(255,255,255,.25)}",
+    ".btn.active{background:#2d7cff;border-color:#2d7cff}",
+    "#vol-wrap{display:flex;align-items:center;gap:8px}",
+    "#vol-slider{width:80px;accent-color:#fff;cursor:pointer}",
+    ".live-badge{display:flex;align-items:center;gap:6px;color:#fff;font-size:12px;font-weight:700;padding:6px 10px;background:rgba(255,59,48,.2);border:1px solid rgba(255,59,48,.5);border-radius:6px}",
+    ".dot{width:8px;height:8px;background:#ff3b30;border-radius:50%;animation:pulse 1.5s infinite}",
+    "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}",
+    "#settings-menu{position:fixed;bottom:78px;right:22px;background:rgba(22,22,24,.96);border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:14px;width:265px;color:#fff;display:none;flex-direction:column;gap:12px;z-index:30;backdrop-filter:blur(12px)}",
     "#settings-menu.open{display:flex}",
-    ".menu-row{display:flex;justify-content:space-between;align-items:center;font-size:13px}",
-    "select{background:#323236;color:#fff;border:1px solid rgba(255,255,255,.1);padding:5px 9px;border-radius:6px;font-size:13px;outline:none;cursor:pointer}",
+    ".menu-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:500}",
+    "select{background:#3a3a3c;color:#fff;border:none;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;cursor:pointer}",
     "</style></head><body>",
-    "<div id='brand'>",
-    "<svg width='30' height='30' viewBox='0 0 100 100' fill='none'>",
-    "<defs><linearGradient id='g1' x1='0' y1='0' x2='100' y2='100' gradientUnits='userSpaceOnUse'><stop offset='48%' stop-color='#ff3b3f'/><stop offset='52%' stop-color='#1e96fc'/></linearGradient></defs>",
-    "<rect x='10' y='20' width='65' height='50' rx='8' stroke='url(#g1)' stroke-width='7'/>",
-    "<polygon points='35,34 35,56 54,45' fill='url(#g1)'/>",
-    "<path d='M35 80 H65 M50 70 V80' stroke='#1e96fc' stroke-width='7' stroke-linecap='round'/>",
-    "<path d='M65 25 A15 15 0 0 1 80 40 M65 13 A27 27 0 0 1 92 40' stroke='url(#g1)' stroke-width='6' stroke-linecap='round'/>",
-    "</svg>",
-    "<div class='brand-txt'><span class='brand-title'>MirrorTV</span><span class='brand-sub'>by Zoso</span></div>",
-    "</div>",
-    "<img id='v' src='/stream'>",
+    "<div id='brand'><div id='brand-icon'>▶</div><div id='brand-text'>MirrorTV<span id='brand-sub'>by Zoso</span></div></div>",
+    "<img id='v' src='/stream' ondblclick='toggleFullscreen()'>",
     "<div id='settings-menu'>",
-    "<div class='menu-row'><span>Qualità</span><select id='sel-res' onchange='updateConfig()'><option value='1920'>1080p HD</option><option value='1280' selected>720p HD</option><option value='854'>480p</option></select></div>",
-    "<div class='menu-row'><span>Fluidità</span><select id='sel-fps' onchange='updateConfig()'><option value='60'>60 FPS</option><option value='30' selected>30 FPS</option><option value='15'>15 FPS</option></select></div>",
-    "<div class='menu-row'><span>Formato</span><select id='sel-fit' onchange='toggleFit(this.value)'><option value='contain' selected>Adatta (Originale)</option><option value='zoom'>Zoom (Riempi)</option></select></div>",
+    "<div class='menu-row'><span>Qualità video</span><select id='sel-res' onchange='updateConfig()'><option value='1920'>1080p HD</option><option value='1280' selected>720p HD</option><option value='854'>480p</option></select></div>",
+    "<div class='menu-row'><span>Fluidità (FPS)</span><select id='sel-fps' onchange='updateConfig()'><option value='60'>60 FPS</option><option value='30' selected>30 FPS</option><option value='15'>15 FPS</option></select></div>",
+    "<div class='menu-row'><span>Formato schermo</span><select id='sel-fit' onchange='toggleFit(this.value)'><option value='contain' selected>Adatta (Originale)</option><option value='zoom'>Zoom (118%)</option></select></div>",
     "<div class='menu-row'><span>Modalità Cinema</span><input type='checkbox' id='chk-cinema' onchange='toggleCinema(this.checked)'></div>",
     "</div>",
     "<div id='controls'>",
-    "<div id='live-bar'><div id='live-fill'></div></div>",
-    "<div id='bar-row'>",
+    "<div id='progress'><div id='progress-bar'></div></div>",
+    "<div class='bar-row'>",
     "<div class='group'>",
-    "<button id='btn-play' class='icon-btn' onclick='togglePause()' title='Pausa (Spazio)'>⏸</button>",
-    "<div id='vol-wrap'><button id='btn-audio' class='icon-btn' onclick='toggleAudio()' title='Audio (M)'>🔇 Attiva Audio</button><input id='vol-slider' type='range' min='0' max='1' step='0.05' value='1' oninput='setVolume(this.value)' style='display:none'></div>",
-    "<div class='live-pill'><span class='dot'></span> DAL VIVO</div>",
+    "<button id='btn-play' class='btn' onclick='togglePause()'>⏸ Pausa</button>",
+    "<div id='vol-wrap'><button id='btn-audio' class='btn' onclick='toggleAudio()'>🔇 Audio</button><input id='vol-slider' type='range' min='0' max='1' step='0.05' value='1' oninput='setVolume(this.value)'></div>",
+    "<div class='live-badge'><span class='dot'></span> DAL VIVO</div>",
     "</div>",
     "<div class='group'>",
-    "<button class='icon-btn' onclick='takeSnapshot()' title='Cattura schermata'>📷</button>",
-    "<button class='icon-btn' onclick='rotateVideo()' title='Ruota 90°'>↻</button>",
-    "<button class='icon-btn' onclick='openMiniplayer()' title='Miniplayer'>⧉</button>",
-    "<button class='icon-btn' onclick='toggleMenu()' title='Impostazioni'>⚙️</button>",
-    "<button class='icon-btn' onclick='toggleFullscreen()' title='Schermo intero (F)'>⛶</button>",
-    "</div></div></div>",
+    "<button class='btn' onclick='takeSnapshot()' title='Salva schermata'>📷 Foto</button>",
+    "<button class='btn' onclick='rotateManual()' title='Ruota manualmente'>↻ Ruota</button>",
+    "<button class='btn' onclick='toggleMenu()'>⚙️ Impostazioni</button>",
+    "<button class='btn' onclick='toggleFullscreen()'>⛶ Schermo intero</button>",
+    "</div>",
+    "</div></div>",
     "<script>",
-    "var ctx=null,gainNode=null,nextTime=0,audioRunning=false,audioAbort=null,rotation=0,paused=false,hideTimer=null;",
-    "function showControls(){var c=document.getElementById('controls'),b=document.getElementById('brand');c.classList.remove('hidden');b.classList.remove('hidden');clearTimeout(hideTimer);hideTimer=setTimeout(function(){if(!document.getElementById('settings-menu').classList.contains('open')){c.classList.add('hidden');b.classList.add('hidden')}},3000)}",
+    "var ctx=null,gainNode=null,nextTime=0,audioRunning=false,audioAbort=null,paused=false,manualRot=0,hideTimer=null;",
+    "function showControls(){document.getElementById('controls').classList.remove('hidden');document.getElementById('brand').classList.remove('hidden');clearTimeout(hideTimer);hideTimer=setTimeout(function(){if(!document.getElementById('settings-menu').classList.contains('open')){document.getElementById('controls').classList.add('hidden');document.getElementById('brand').classList.add('hidden')}},3000)}",
     "document.addEventListener('mousemove',showControls);document.addEventListener('touchstart',showControls);showControls();",
-    "document.getElementById('v').addEventListener('dblclick',toggleFullscreen);",
-    "document.addEventListener('keydown',function(e){if(e.code==='Space'){e.preventDefault();togglePause()}else if(e.key==='f'||e.key==='F'){toggleFullscreen()}else if(e.key==='m'||e.key==='M'){toggleAudio()}});",
-    "function togglePause(){paused=!paused;var img=document.getElementById('v'),btn=document.getElementById('btn-play');if(paused){img.classList.add('paused');img.src='';btn.textContent='▶️'}else{img.classList.remove('paused');img.src='/stream?t='+Date.now();btn.textContent='⏸'}}",
     "function toggleMenu(){document.getElementById('settings-menu').classList.toggle('open')}",
-    "function toggleFit(m){var i=document.getElementById('v');if(m==='zoom')i.classList.add('zoom');else i.classList.remove('zoom')}",
+    "function toggleFit(m){var i=document.getElementById('v');if(m==='zoom')i.classList.add('zoomed');else i.classList.remove('zoomed')}",
     "function toggleCinema(on){var i=document.getElementById('v');if(on)i.classList.add('cinema');else i.classList.remove('cinema')}",
-    "function rotateVideo(){rotation=(rotation+90)%360;var i=document.getElementById('v');var s=(rotation%180!==0)?(window.innerHeight/window.innerWidth):1;i.style.transform='rotate('+rotation+'deg) scale('+s+')'}",
+    "function rotateManual(){manualRot=(manualRot+90)%360;var i=document.getElementById('v');var z=i.classList.contains('zoomed')?' scale(1.18)':'';i.style.transform='rotate('+manualRot+'deg)'+z}",
+    "function togglePause(){var i=document.getElementById('v'),b=document.getElementById('btn-play');paused=!paused;if(paused){i.src='';b.textContent='▶ Riprendi';b.classList.add('active')}else{i.src='/stream?t='+Date.now();b.textContent='⏸ Pausa';b.classList.remove('active')}}",
+    "function takeSnapshot(){var i=document.getElementById('v');if(!i.naturalWidth)return;var c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;c.getContext('2d').drawImage(i,0,0);var a=document.createElement('a');a.download='MirrorTV-'+Date.now()+'.png';a.href=c.toDataURL('image/png');a.click()}",
     "function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(function(){});else document.exitFullscreen().catch(function(){})}",
-    "function openMiniplayer(){window.open(location.href,'MirrorTVMini','width=480,height=270,menubar=no,toolbar=no,location=no,status=no')}",
-    "function takeSnapshot(){var img=document.getElementById('v');var c=document.createElement('canvas');c.width=img.naturalWidth||1280;c.height=img.naturalHeight||720;c.getContext('2d').drawImage(img,0,0);var a=document.createElement('a');a.download='MirrorTV_Zoso_'+Date.now()+'.png';a.href=c.toDataURL('image/png');a.click()}",
     "function updateConfig(){var r=document.getElementById('sel-res').value,f=document.getElementById('sel-fps').value;fetch('/config?res='+r+'&fps='+f).catch(function(){})}",
     "function setVolume(v){if(gainNode)gainNode.gain.value=parseFloat(v)}",
-    "async function toggleAudio(){var b=document.getElementById('btn-audio'),sl=document.getElementById('vol-slider');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null}b.textContent='🔇 Attiva Audio';b.classList.remove('active');sl.style.display='none';return}audioRunning=true;b.textContent='🔊';b.classList.add('active');sl.style.display='inline-block';audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:48000});gainNode=ctx.createGain();gainNode.gain.value=parseFloat(sl.value);gainNode.connect(ctx.destination);await ctx.resume();var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var buf=new Uint8Array(left.length+r.value.length);buf.set(left);buf.set(r.value,left.length);var u=buf.length-(buf.length%4);left=buf.slice(u);if(u===0)continue;var n=u/4,i16=new Int16Array(buf.buffer,0,u/2),ab=ctx.createBuffer(2,n,48000),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.15;if(nextTime>now+0.8)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(gainNode);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova';b.classList.remove('active');sl.style.display='none'}}}",
+    "document.addEventListener('keydown',function(e){if(e.code==='Space'){e.preventDefault();togglePause()}else if(e.key==='f'||e.key==='F'){toggleFullscreen()}else if(e.key==='m'||e.key==='M'){toggleAudio()}});",
+    "async function toggleAudio(){var b=document.getElementById('btn-audio');if(audioRunning){audioRunning=false;if(audioAbort)audioAbort.abort();if(ctx){ctx.close();ctx=null;gainNode=null}b.textContent='🔇 Audio';b.classList.remove('active');return}audioRunning=true;b.textContent='🔊 Audio';b.classList.add('active');audioAbort=new AbortController();try{ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await ctx.resume();gainNode=ctx.createGain();gainNode.gain.value=parseFloat(document.getElementById('vol-slider').value);gainNode.connect(ctx.destination);nextTime=0;var res=await fetch('/audio',{signal:audioAbort.signal}),rd=res.body.getReader(),left=new Uint8Array(0);while(audioRunning){var r=await rd.read();if(r.done)break;var chunk=r.value;var total=left.length+chunk.length;var usable=total-(total%4);var merged=new Uint8Array(usable);merged.set(left,0);if(usable>left.length){merged.set(chunk.subarray(0,usable-left.length),left.length)}left=chunk.subarray(Math.max(0,usable-left.length));if(usable===0)continue;var n=usable/4,i16=new Int16Array(merged.buffer,0,usable/2),ab=ctx.createBuffer(2,n,48000),L=ab.getChannelData(0),R=ab.getChannelData(1);for(var i=0;i<n;i++){L[i]=i16[2*i]/32768.0;R[i]=i16[2*i+1]/32768.0}var now=ctx.currentTime;if(nextTime<now+0.05)nextTime=now+0.25;if(nextTime>now+1.0)continue;var src=ctx.createBufferSource();src.buffer=ab;src.connect(gainNode);src.start(nextTime);nextTime+=ab.duration}}catch(e){if(audioRunning){audioRunning=false;b.textContent='🔇 Riprova';b.classList.remove('active')}}}",
     "</script></body></html>"
 ].joined()
 
@@ -243,7 +228,7 @@ final class MJPEGServer {
 
     func broadcastAudio(_ pcm: Data) {
         lock.lock()
-        if audioClients.isEmpty || audioPending > 20 { lock.unlock(); return }
+        if audioClients.isEmpty || audioPending > 25 { lock.unlock(); return }
         audioPending += 1
         let snapshot = audioClients
         lock.unlock()
@@ -306,10 +291,25 @@ class SampleHandler: RPBroadcastSampleHandler {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-            // Rotazione automatica quando giri l'iPhone in orizzontale
-            if let orientationAttachment = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
-               let orientation = CGImagePropertyOrientation(rawValue: orientationAttachment.uint32Value) {
-                ciImage = ciImage.oriented(orientation)
+            // Correzione orientamento ReplayKit (invertito su .left e .right rispetto a EXIF)
+            if let orientationVal = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber,
+               let rawOrientation = CGImagePropertyOrientation(rawValue: orientationVal.uint32Value) {
+                let fixedOrientation: CGImagePropertyOrientation
+                switch rawOrientation {
+                case .left:
+                    fixedOrientation = .right
+                case .right:
+                    fixedOrientation = .left
+                case .leftMirrored:
+                    fixedOrientation = .rightMirrored
+                case .rightMirrored:
+                    fixedOrientation = .leftMirrored
+                default:
+                    fixedOrientation = rawOrientation
+                }
+                if fixedOrientation != .up {
+                    ciImage = ciImage.oriented(fixedOrientation)
+                }
             }
 
             let maxDimension = server.maxResolution
@@ -383,6 +383,6 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
 
         let byteCount = Int(outputBuffer.frameLength) * 4
-        return Data(bytes: int16Data, count: byteCount)
+        return Data(bytes: int16Data[0], count: byteCount)
     }
 }
