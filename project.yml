@@ -25,6 +25,8 @@ targets:
         CFBundleDisplayName: Mirror TV
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
+        NSBonjourServices:
+          - _http._tcp
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     settings:
@@ -43,6 +45,9 @@ targets:
       path: Ext-Info.plist
       properties:
         CFBundleDisplayName: Mirror TV
+        NSLocalNetworkUsageDescription: Serve per trasmettere lo schermo alla TV sulla rete Wi-Fi.
+        NSBonjourServices:
+          - _http._tcp
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
