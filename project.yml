@@ -29,7 +29,7 @@ targets:
           - UIInterfaceOrientationPortrait
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortv
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortvb
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
   MirrorTVExt:
@@ -49,6 +49,6 @@ targets:
           RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortv.ext
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mirrortvb.ext
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
