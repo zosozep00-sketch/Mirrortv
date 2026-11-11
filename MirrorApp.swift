@@ -127,11 +127,151 @@ struct BroadcastPicker: UIViewRepresentable {
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
 
+// MARK: - Orientamento e finestra del telecomando
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    // L'app resta in verticale, tranne quando serve l'orizzontale (video o scheda Browser)
+    static var tabAllowsLandscape = false { didSet { refreshOrientation() } }
+    static var playerOpen = false { didSet { refreshOrientation() } }
+
+    static var allowLandscape: Bool { tabAllowsLandscape || playerOpen }
+
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        return AppDelegate.allowLandscape ? .allButUpsideDown : .portrait
+    }
+
+    static func refreshOrientation() {
+        DispatchQueue.main.async {
+            if #available(iOS 16.0, *) {
+                for scene in UIApplication.shared.connectedScenes {
+                    guard let windowScene = scene as? UIWindowScene else { continue }
+                    windowScene.windows.first(where: { $0.isKeyWindow })?
+                        .rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    if !allowLandscape {
+                        windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
+                    }
+                }
+            } else {
+                if !allowLandscape {
+                    UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+                }
+                UIViewController.attemptRotationToDeviceOrientation()
+            }
+        }
+    }
+}
+
+// Finestra trasparente sopra a tutto: lascia passare i tocchi dove non c'è la barra
+final class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        if hit === rootViewController?.view { return nil }
+        return hit
+    }
+}
+
+final class OverlayHostingController<Content: View>: UIHostingController<Content> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return AppDelegate.allowLandscape ? .allButUpsideDown : .portrait
+    }
+}
+
+final class RemoteOverlayManager {
+    static let shared = RemoteOverlayManager()
+    private var window: PassthroughWindow?
+
+    func install(remote: RemoteControlManager) {
+        guard window == nil else { return }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+
+        let host = OverlayHostingController(rootView: RemoteOverlayView(remote: remote))
+        host.view.backgroundColor = .clear
+
+        let w = PassthroughWindow(windowScene: scene)
+        w.rootViewController = host
+        w.backgroundColor = .clear
+        w.windowLevel = UIWindow.Level.alert + 1
+        w.isHidden = false
+        window = w
+    }
+}
+
+struct RemoteOverlayView: View {
+    @ObservedObject var remote: RemoteControlManager
+    @State private var offset = CGSize.zero
+    @State private var dragStart = CGSize.zero
+
+    private var addressText: String {
+        if let ip = localIPAddress() { return "http://\(ip):8080" }
+        return "Nessun Wi-Fi / No Wi-Fi"
+    }
+
+    private func dragGesture(in size: CGSize) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let maxX = max(size.width / 2 - 40, 0)
+                let newX = min(max(dragStart.width + value.translation.width, -maxX), maxX)
+                let newY = min(max(dragStart.height + value.translation.height, -(size.height - 160)), 40)
+                offset = CGSize(width: newX, height: newY)
+            }
+            .onEnded { _ in dragStart = offset }
+    }
+
+    private var handleButton: some View {
+        Button {
+            withAnimation { remote.barHidden = false }
+        } label: {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 40, height: 40)
+                .background(Color.red.opacity(0.85))
+                .clipShape(Circle())
+                .shadow(color: Color.black.opacity(0.3), radius: 4, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if remote.isBroadcasting {
+                    if !remote.isMinimized {
+                        RemoteControlView(remote: remote, ipAddress: addressText)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    } else if remote.barHidden {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                handleButton
+                            }
+                            .padding(.trailing, 12)
+                            .padding(.bottom, 120)
+                        }
+                    } else {
+                        VStack {
+                            Spacer()
+                            MiniRemoteBar(remote: remote)
+                                .offset(offset)
+                                .gesture(dragGesture(in: geo.size))
+                                .padding(.bottom, 60)
+                        }
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
 // MARK: - Telecomando
 
 class RemoteControlManager: ObservableObject {
     @Published var isBroadcasting = false
-    @Published var isMinimized = false
+    @Published var isMinimized = true
     @Published var isConnected = false
     @Published var resolution = "1280"
     @Published var fps = "30"
@@ -141,6 +281,7 @@ class RemoteControlManager: ObservableObject {
     @Published var audioActive = false
     @Published var isPaused = false
     @Published var isFullscreen = false
+    @Published var barHidden = false
 
     private var timer: Timer?
 
@@ -166,7 +307,8 @@ class RemoteControlManager: ObservableObject {
         DispatchQueue.main.async {
             if self.isBroadcasting != active {
                 self.isBroadcasting = active
-                if !active { self.isMinimized = false }
+                self.isMinimized = true
+                self.barHidden = false
             }
         }
         if active { fetchState() }
@@ -209,25 +351,31 @@ class RemoteControlManager: ObservableObject {
 struct MiniRemoteBar: View {
     @ObservedObject var remote: RemoteControlManager
 
+    private func circleButton(_ icon: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 34, height: 34)
+                .background(active ? Color.blue.opacity(0.35) : Color(.systemGray5))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     remote.isMinimized = false
                 }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 5) {
                     Circle()
                         .fill(remote.isConnected ? Color.green : Color.red)
                         .frame(width: 9, height: 9)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Telecomando Live")
-                            .font(.caption.bold())
-                            .foregroundColor(.primary)
-                        Text("Tocca per ingrandire / Tap to expand")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                    }
+                    Text("LIVE")
+                        .font(.caption.bold())
+                        .foregroundColor(.primary)
                     Image(systemName: "chevron.up.circle.fill")
                         .font(.title3)
                         .foregroundColor(.blue)
@@ -235,42 +383,34 @@ struct MiniRemoteBar: View {
             }
             .buttonStyle(.plain)
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            Button {
+            circleButton(remote.isPaused ? "play.fill" : "pause.fill", active: remote.isPaused) {
                 remote.isPaused.toggle()
                 remote.sendCommand("paused=\(remote.isPaused ? 1 : 0)")
-            } label: {
-                Image(systemName: remote.isPaused ? "play.fill" : "pause.fill")
-                    .font(.body.bold())
-                    .frame(width: 34, height: 34)
-                    .background(remote.isPaused ? Color.orange.opacity(0.25) : Color(.systemGray5))
-                    .clipShape(Circle())
             }
 
-            Button {
+            circleButton(remote.audioActive ? "speaker.wave.2.fill" : "speaker.slash.fill", active: remote.audioActive) {
                 remote.audioActive.toggle()
                 remote.sendCommand("audio=\(remote.audioActive ? 1 : 0)")
-            } label: {
-                Image(systemName: remote.audioActive ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.body.bold())
-                    .frame(width: 34, height: 34)
-                    .background(remote.audioActive ? Color.blue.opacity(0.25) : Color(.systemGray5))
-                    .clipShape(Circle())
             }
 
-            Button {
+            circleButton("rotate.right.fill") {
                 remote.rotation = (remote.rotation + 90) % 360
                 remote.sendCommand("rot=\(remote.rotation)")
-            } label: {
-                Image(systemName: "rotate.right.fill")
-                    .font(.body.bold())
-                    .frame(width: 34, height: 34)
-                    .background(Color(.systemGray5))
-                    .clipShape(Circle())
+            }
+
+            circleButton(remote.isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                         active: remote.isFullscreen) {
+                remote.isFullscreen.toggle()
+                remote.sendCommand("full=\(remote.isFullscreen ? 1 : 0)")
+            }
+
+            circleButton("eye.slash.fill") {
+                withAnimation { remote.barHidden = true }
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
         .overlay(
@@ -280,7 +420,6 @@ struct MiniRemoteBar: View {
         .cornerRadius(16)
         .shadow(color: Color.black.opacity(0.25), radius: 8, y: 3)
         .padding(.horizontal, 10)
-        .padding(.bottom, 4)
     }
 }
 
@@ -603,7 +742,8 @@ struct SafariWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true
+        // Su iPhone i video del sito si aprono nel player a schermo intero, che ruota da solo
+        config.allowsInlineMediaPlayback = false
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
@@ -701,7 +841,7 @@ struct WebBrowserCastView: View {
 
             SafariWebView(urlString: activeURL, detectedVideoURL: $detectedVideoURL)
         }
-        .sheet(isPresented: $showFullPlayer) {
+        .fullScreenCover(isPresented: $showFullPlayer) {
             if let vid = detectedVideoURL, let u = URL(string: vid) {
                 UniversalVideoPlayerSheet(url: u, title: "Web Video Cast")
             }
@@ -931,17 +1071,28 @@ struct MusicPlayerView: View {
 
 // MARK: - Galleria
 
+enum GalleryPicker: Identifiable {
+    case photos
+    case files
+
+    var id: Int {
+        switch self {
+        case .photos: return 0
+        case .files: return 1
+        }
+    }
+}
+
 struct GalleryMediaCastView: View {
     @State private var selectedVideoURL: URL?
     @State private var selectedImage: UIImage?
-    @State private var showPhotoPicker = false
-    @State private var showFileImporter = false
-    @State private var showPlayerSheet = false
+    @State private var picker: GalleryPicker?
+    @State private var showPlayer = false
 
     // Aspetta che il selettore si sia chiuso prima di aprire il player
     private func presentPlayerSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            showPlayerSheet = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            showPlayer = true
         }
     }
 
@@ -971,7 +1122,7 @@ struct GalleryMediaCastView: View {
                 .padding(.horizontal)
 
                 HStack(spacing: 14) {
-                    Button { showPhotoPicker = true } label: {
+                    Button { picker = .photos } label: {
                         VStack(spacing: 6) {
                             Image(systemName: "photo.on.rectangle.angled").font(.title)
                             BilingualLabel(it: "Apri Galleria", en: "Open Gallery", font: .subheadline.bold(), color: .white)
@@ -979,7 +1130,7 @@ struct GalleryMediaCastView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
                         .background(Color.red).foregroundColor(.white).cornerRadius(16)
                     }
-                    Button { showFileImporter = true } label: {
+                    Button { picker = .files } label: {
                         VStack(spacing: 6) {
                             Image(systemName: "doc.fill").font(.title)
                             BilingualLabel(it: "Apri da File", en: "Open Files", font: .subheadline.bold(), color: .white)
@@ -999,35 +1150,38 @@ struct GalleryMediaCastView: View {
                             .scaledToFit()
                             .frame(maxHeight: 280)
                             .cornerRadius(14)
-                            .onTapGesture { showPlayerSheet = true }
+                            .onTapGesture { showPlayer = true }
                     }
                     .padding(.horizontal)
                 }
             }
             .padding(.vertical)
         }
-        .sheet(isPresented: $showPhotoPicker) {
-            PhotoLibraryPicker(videoURL: $selectedVideoURL, image: $selectedImage, onPicked: {
-                presentPlayerSoon()
-            })
+        .sheet(item: $picker) { kind in
+            switch kind {
+            case .photos:
+                PhotoLibraryPicker(videoURL: $selectedVideoURL, image: $selectedImage, onPicked: {
+                    picker = nil
+                    presentPlayerSoon()
+                })
+            case .files:
+                DocumentPicker(contentTypes: [.movie, .video, .image],
+                               onPick: { urls in
+                                   picker = nil
+                                   guard let url = urls.first else { return }
+                                   if let img = UIImage(contentsOfFile: url.path) {
+                                       selectedImage = img
+                                       selectedVideoURL = nil
+                                   } else {
+                                       selectedVideoURL = url
+                                       selectedImage = nil
+                                   }
+                                   presentPlayerSoon()
+                               },
+                               onCancel: { picker = nil })
+            }
         }
-        .sheet(isPresented: $showFileImporter) {
-            DocumentPicker(contentTypes: [.movie, .video, .image],
-                           onPick: { urls in
-                               showFileImporter = false
-                               guard let url = urls.first else { return }
-                               if let img = UIImage(contentsOfFile: url.path) {
-                                   selectedImage = img
-                                   selectedVideoURL = nil
-                               } else {
-                                   selectedVideoURL = url
-                                   selectedImage = nil
-                               }
-                               presentPlayerSoon()
-                           },
-                           onCancel: { showFileImporter = false })
-        }
-        .sheet(isPresented: $showPlayerSheet) {
+        .fullScreenCover(isPresented: $showPlayer) {
             if let vid = selectedVideoURL {
                 UniversalVideoPlayerSheet(url: vid, title: vid.lastPathComponent)
             } else if let img = selectedImage {
@@ -1202,7 +1356,7 @@ struct IPTVCastView: View {
                            },
                            onCancel: { showFileImporter = false })
         }
-        .sheet(item: $selectedChannel) { ch in
+        .fullScreenCover(item: $selectedChannel) { ch in
             if let url = URL(string: ch.url) {
                 UniversalVideoPlayerSheet(url: url, title: ch.name)
             }
@@ -1258,35 +1412,59 @@ struct UniversalVideoPlayerSheet: View {
     @State private var rate: Float = 1.0
     @Environment(\.dismiss) var dismiss
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(title).font(.headline).lineLimit(1)
-                Spacer()
-                Menu("Velocità (\(String(format: "%.2gx", rate)))") {
-                    ForEach([Float(0.5), 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { r in
-                        Button("\(String(format: "%.2gx", r))") {
-                            rate = r
-                            player?.rate = r
-                        }
+    private var header: some View {
+        HStack {
+            Text(title).font(.headline).lineLimit(1)
+            Spacer()
+            Menu("Velocità (\(String(format: "%.2gx", rate)))") {
+                ForEach([Float(0.5), 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { r in
+                    Button("\(String(format: "%.2gx", r))") {
+                        rate = r
+                        player?.rate = r
                     }
                 }
-                .font(.subheadline.bold())
-                Button("Chiudi") { dismiss() }.padding(.leading, 8)
             }
-            .padding()
-            .background(Color(.systemGray6))
+            .font(.subheadline.bold())
+            Button("Chiudi") { dismiss() }.padding(.leading, 8)
+        }
+        .padding()
+        .background(Color(.systemGray6))
+    }
 
-            if let p = player {
-                VideoPlayer(player: p)
-                    .ignoresSafeArea(edges: .bottom)
-            } else {
-                Spacer()
-                ProgressView()
-                Spacer()
+    var body: some View {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            ZStack(alignment: .topLeading) {
+                Color.black.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    if !landscape { header }
+
+                    if let p = player {
+                        VideoPlayer(player: p)
+                            .ignoresSafeArea(edges: landscape ? Edge.Set.all : Edge.Set.bottom)
+                    } else {
+                        Spacer()
+                        ProgressView().tint(.white)
+                        Spacer()
+                    }
+                }
+
+                // In orizzontale resta solo il video, con un piccolo tasto per chiudere
+                if landscape {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .foregroundColor(.white.opacity(0.85))
+                            .padding(14)
+                    }
+                }
             }
         }
         .onAppear {
+            AppDelegate.playerOpen = true
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try? AVAudioSession.sharedInstance().setActive(true)
             let p = AVPlayer(url: url)
             player = p
             p.play()
@@ -1294,6 +1472,7 @@ struct UniversalVideoPlayerSheet: View {
         .onDisappear {
             player?.pause()
             player = nil
+            AppDelegate.playerOpen = false
         }
     }
 }
@@ -1302,45 +1481,38 @@ struct UniversalVideoPlayerSheet: View {
 
 struct ContentView: View {
     @State private var ip: String? = localIPAddress()
+    @State private var selectedTab = 0
     @StateObject private var networkTrigger = LocalNetworkTrigger()
     @StateObject private var remote = RemoteControlManager()
 
-    var urlString: String {
-        if let ip { return "http://\(ip):8080" }
-        return "Nessun Wi-Fi / No Wi-Fi"
-    }
-
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView {
-                HomeMirrorView(ip: $ip)
-                    .tabItem { Label("Schermo", systemImage: "tv.and.mediabox") }
-                WebBrowserCastView()
-                    .tabItem { Label("Browser", systemImage: "safari.fill") }
-                MusicPlayerView()
-                    .tabItem { Label("Musica", systemImage: "music.note") }
-                GalleryMediaCastView()
-                    .tabItem { Label("Galleria", systemImage: "photo.on.rectangle") }
-                IPTVCastView()
-                    .tabItem { Label("IPTV", systemImage: "antenna.radiowaves.left.and.right") }
-            }
-            .safeAreaInset(edge: .bottom) {
-                if remote.isBroadcasting && remote.isMinimized {
-                    MiniRemoteBar(remote: remote)
-                        .padding(.bottom, 48)
-                }
-            }
-
-            if remote.isBroadcasting && !remote.isMinimized {
-                RemoteControlView(remote: remote, ipAddress: urlString)
-                    .transition(.move(edge: .bottom))
-                    .zIndex(50)
-            }
+        TabView(selection: $selectedTab) {
+            HomeMirrorView(ip: $ip)
+                .tabItem { Label("Schermo", systemImage: "tv.and.mediabox") }
+                .tag(0)
+            WebBrowserCastView()
+                .tabItem { Label("Browser", systemImage: "safari.fill") }
+                .tag(1)
+            MusicPlayerView()
+                .tabItem { Label("Musica", systemImage: "music.note") }
+                .tag(2)
+            GalleryMediaCastView()
+                .tabItem { Label("Galleria", systemImage: "photo.on.rectangle") }
+                .tag(3)
+            IPTVCastView()
+                .tabItem { Label("IPTV", systemImage: "antenna.radiowaves.left.and.right") }
+                .tag(4)
+        }
+        .onChange(of: selectedTab) { newValue in
+            // Il browser può ruotare in orizzontale; le altre schede restano in verticale
+            AppDelegate.tabAllowsLandscape = (newValue == 1)
         }
         .onAppear {
             ip = localIPAddress()
             networkTrigger.trigger()
             remote.startMonitoring()
+            // Il telecomando vive in una finestra sopra a tutto, anche sopra ai player
+            RemoteOverlayManager.shared.install(remote: remote)
         }
         .onDisappear {
             remote.stopMonitoring()
@@ -1350,6 +1522,8 @@ struct ContentView: View {
 
 @main
 struct MirrorTVApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()
