@@ -83,13 +83,13 @@ function tryFullscreen() {
 }
 
 // Impostazioni scelte dal telecomando nell'app
-var st = {fit: 'contain', rot: 0, full: false};
+var st = {fit: 'contain', rot: 0, full: false, land: false};
 function layout() {
   var v = document.getElementById('v');
   var swap = (st.rot === 90 || st.rot === 270);
   v.style.width = swap ? '100vh' : '100vw';
   v.style.height = swap ? '100vw' : '100vh';
-  v.style.objectFit = st.full ? 'cover' : 'contain';
+  v.style.objectFit = (st.full || st.land) ? 'cover' : 'contain';
   var zoom = (st.fit === 'zoom') ? 1.18 : 1;
   v.style.transform = 'translate(-50%,-50%) rotate(' + st.rot + 'deg) scale(' + zoom + ')';
   document.getElementById('b').style.visibility = st.full ? 'hidden' : 'visible';
@@ -101,11 +101,11 @@ function poll() {
   x.onload = function () {
     try {
       var s = JSON.parse(x.responseText);
-      var wasFull = st.full;
-      var changed = (s.fit !== st.fit) || (s.rot !== st.rot) || (s.full !== st.full);
-      st.fit = s.fit; st.rot = s.rot; st.full = s.full;
+      var wasBig = st.full || st.land;
+      var changed = (s.fit !== st.fit) || (s.rot !== st.rot) || (s.full !== st.full) || (s.land !== st.land);
+      st.fit = s.fit; st.rot = s.rot; st.full = s.full; st.land = s.land;
       if (changed) layout();
-      if (s.full && !wasFull) tryFullscreen();
+      if ((s.full || s.land) && !wasBig) tryFullscreen();
     } catch (err) {}
   };
   x.send();
@@ -142,6 +142,12 @@ final class MJPEGServer {
     private var audioOn = true
     private var pausedValue = false
     private var fullValue = false
+    private var landValue = false
+
+    func setLandscape(_ value: Bool) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        landValue = value
+    }
 
     var maxSide: CGFloat {
         stateLock.lock(); defer { stateLock.unlock() }
@@ -189,7 +195,7 @@ final class MJPEGServer {
 
     private func stateJSON() -> String {
         stateLock.lock(); defer { stateLock.unlock() }
-        return "{\"res\":\"\(resValue)\",\"fps\":\"\(fpsValue)\",\"speed\":\"\(speedValue)\",\"fit\":\"\(fitValue)\",\"rot\":\(rotValue),\"audio\":\(audioOn),\"paused\":\(pausedValue),\"full\":\(fullValue)}"
+        return "{\"res\":\"\(resValue)\",\"fps\":\"\(fpsValue)\",\"speed\":\"\(speedValue)\",\"fit\":\"\(fitValue)\",\"rot\":\(rotValue),\"audio\":\(audioOn),\"paused\":\(pausedValue),\"full\":\(fullValue),\"land\":\(landValue)}"
     }
 
     private func respond(_ client: Int32, contentType: String, body: String) {
@@ -415,6 +421,9 @@ class SampleHandler: RPBroadcastSampleHandler {
             }
             image = image.oriented(orientation)
         }
+
+        // Se il telefono è in orizzontale, la TV riempie lo schermo da sola
+        server.setLandscape(image.extent.width > image.extent.height)
 
         let longest = max(image.extent.width, image.extent.height)
         let scale = min(1.0, server.maxSide / longest)
