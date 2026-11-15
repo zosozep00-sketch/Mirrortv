@@ -217,6 +217,7 @@ final class DeviceManager: ObservableObject {
     @Published private(set) var live: Set<String> = []
     @Published private(set) var scanning = false
     @Published private(set) var triggerCount = 0
+    @Published private(set) var connectedID: UUID?
     @Published var status: String?
     @Published var info: InfoMessage?
 
@@ -236,9 +237,16 @@ final class DeviceManager: ObservableObject {
 
     // MARK: Elenchi per la schermata
 
-    var recents: [SavedDevice] {
+    // Il dispositivo collegato in questo momento
+    var current: SavedDevice? {
+        guard let id = connectedID else { return nil }
+        return devices.first(where: { $0.id == id })
+    }
+
+    // Cronologia: dispositivi collegati in passato, l'ultimo in alto
+    var history: [SavedDevice] {
         return devices
-            .filter { $0.lastConnected != nil }
+            .filter { $0.lastConnected != nil && $0.id != connectedID }
             .sorted { ($0.lastConnected ?? Date.distantPast) > ($1.lastConnected ?? Date.distantPast) }
     }
 
@@ -277,6 +285,16 @@ final class DeviceManager: ObservableObject {
 
     func remove(_ d: SavedDevice) {
         devices.removeAll { $0.id == d.id }
+        if connectedID == d.id { connectedID = nil }
+        save()
+    }
+
+    // Svuota la cronologia: i dispositivi restano salvati, ma senza data di collegamento
+    func clearHistory() {
+        for i in devices.indices where devices[i].id != connectedID {
+            devices[i].lastConnected = nil
+        }
+        prune()
         save()
     }
 
@@ -393,7 +411,12 @@ final class DeviceManager: ObservableObject {
     }
 
     private func captureChanged() {
-        guard UIScreen.main.isCaptured, let id = pendingID else { return }
+        // Se la trasmissione si ferma, il dispositivo non è più collegato
+        if !UIScreen.main.isCaptured {
+            connectedID = nil
+            return
+        }
+        guard let id = pendingID else { return }
         pendingID = nil
         scheduleLaunch(id, attempt)
     }
@@ -414,6 +437,7 @@ final class DeviceManager: ObservableObject {
             return
         }
         let address = "http://\(myIP):8080"
+        connectedID = nil
         status = "Sto collegando \(d.name)… Se sulla TV compare una richiesta, scegli «Consenti»."
 
         let l = SamsungLauncher()
@@ -424,6 +448,7 @@ final class DeviceManager: ObservableObject {
             switch result {
             case .ok(let token):
                 self.markConnected(d.id, token: token)
+                self.connectedID = d.id
                 self.status = "Collegato a \(d.name)"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
                     self?.status = nil
@@ -578,7 +603,10 @@ struct DevicesSection: View {
                     .cornerRadius(10)
             }
 
-            group(it: "Recenti", en: "Recent", list: manager.recents)
+            if let c = manager.current {
+                group(it: "Connesso ora", en: "Connected now", list: [c], connected: true)
+            }
+            group(it: "Cronologia", en: "History", list: manager.history, canClear: true)
             group(it: "Nella rete", en: "On the network", list: manager.nearby)
             group(it: "Salvati", en: "Saved", list: manager.saved)
 
@@ -608,18 +636,27 @@ struct DevicesSection: View {
     }
 
     @ViewBuilder
-    private func group(it: String, en: String, list: [SavedDevice]) -> some View {
+    private func group(it: String, en: String, list: [SavedDevice],
+                       connected: Bool = false, canClear: Bool = false) -> some View {
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                BilingualLabel(it: it, en: en, font: .caption.bold(), color: .secondary, alignment: .leading)
+                HStack {
+                    BilingualLabel(it: it, en: en, font: .caption.bold(), color: .secondary, alignment: .leading)
+                    Spacer()
+                    if canClear {
+                        Button(role: .destructive) { manager.clearHistory() } label: {
+                            Text("Svuota / Clear").font(.caption.bold())
+                        }
+                    }
+                }
                 ForEach(list) { d in
-                    row(d)
+                    row(d, connected: connected)
                 }
             }
         }
     }
 
-    private func row(_ d: SavedDevice) -> some View {
+    private func row(_ d: SavedDevice, connected: Bool = false) -> some View {
         Button { manager.tap(d) } label: {
             HStack(spacing: 10) {
                 Image(systemName: d.kind.icon)
@@ -631,14 +668,28 @@ struct DevicesSection: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
+                    if connected {
+                        Text("Connesso / Connected")
+                            .font(.caption2.bold())
+                            .foregroundColor(.green)
+                    } else if let last = d.lastConnected {
+                        Text("Ultimo collegamento: \(last.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
-                Circle()
-                    .fill(manager.live.contains(d.ip) ? Color.green : Color.gray.opacity(0.5))
-                    .frame(width: 10, height: 10)
+                if connected {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                } else {
+                    Circle()
+                        .fill(manager.live.contains(d.ip) ? Color.green : Color.gray.opacity(0.5))
+                        .frame(width: 10, height: 10)
+                }
             }
             .padding(10)
-            .background(Color(.systemGray6))
+            .background(connected ? Color.green.opacity(0.15) : Color(.systemGray6))
             .cornerRadius(10)
         }
         .buttonStyle(.plain)
