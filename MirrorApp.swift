@@ -130,35 +130,15 @@ struct BroadcastPicker: UIViewRepresentable {
 // MARK: - Orientamento e finestra del telecomando
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    // L'app resta in verticale, tranne quando serve l'orizzontale (video o scheda Browser)
-    static var tabAllowsLandscape = false { didSet { refreshOrientation() } }
-    static var playerOpen = false { didSet { refreshOrientation() } }
-
-    static var allowLandscape: Bool { tabAllowsLandscape || playerOpen }
+    // Rotazione automatica in tutte le modalità: segue il sensore del telefono
+    // e rispetta il blocco rotazione del Centro di Controllo.
+    static var supportedMask: UIInterfaceOrientationMask {
+        return UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+    }
 
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        return AppDelegate.allowLandscape ? .allButUpsideDown : .portrait
-    }
-
-    static func refreshOrientation() {
-        DispatchQueue.main.async {
-            if #available(iOS 16.0, *) {
-                for scene in UIApplication.shared.connectedScenes {
-                    guard let windowScene = scene as? UIWindowScene else { continue }
-                    windowScene.windows.first(where: { $0.isKeyWindow })?
-                        .rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-                    if !allowLandscape {
-                        windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
-                    }
-                }
-            } else {
-                if !allowLandscape {
-                    UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
-                }
-                UIViewController.attemptRotationToDeviceOrientation()
-            }
-        }
+        return AppDelegate.supportedMask
     }
 }
 
@@ -173,7 +153,7 @@ final class PassthroughWindow: UIWindow {
 
 final class OverlayHostingController<Content: View>: UIHostingController<Content> {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        return AppDelegate.allowLandscape ? .allButUpsideDown : .portrait
+        return AppDelegate.supportedMask
     }
 }
 
@@ -732,11 +712,143 @@ struct HomeMirrorView: View {
     }
 }
 
+// MARK: - Dati salvati (elementi recenti)
+
+enum RecentKind: String, Codable {
+    case music
+    case video
+    case image
+    case link
+    case playlist
+}
+
+struct RecentItem: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var kind: RecentKind
+    var title: String
+    var fileName: String?
+    var urlString: String?
+    var date = Date()
+}
+
+// File copiati dentro l'app: restano anche dopo aver chiuso e riaperto l'app
+enum AppStorageFiles {
+    static var mediaDirectory: URL {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("Media", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func importFile(_ source: URL) -> String? {
+        let ext = source.pathExtension
+        let base = source.deletingPathExtension().lastPathComponent
+        let prefix = String(UUID().uuidString.prefix(8))
+        let name = prefix + "-" + base + (ext.isEmpty ? "" : "." + ext)
+        do {
+            try FileManager.default.copyItem(at: source, to: mediaDirectory.appendingPathComponent(name))
+            return name
+        } catch {
+            return nil
+        }
+    }
+
+    static func saveImage(_ image: UIImage) -> String? {
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return nil }
+        let name = String(UUID().uuidString.prefix(8)) + "-foto.jpg"
+        do {
+            try data.write(to: mediaDirectory.appendingPathComponent(name))
+            return name
+        } catch {
+            return nil
+        }
+    }
+
+    static func url(for fileName: String) -> URL {
+        return mediaDirectory.appendingPathComponent(fileName)
+    }
+
+    static func exists(_ fileName: String) -> Bool {
+        return FileManager.default.fileExists(atPath: url(for: fileName).path)
+    }
+
+    static func delete(_ fileName: String) {
+        try? FileManager.default.removeItem(at: url(for: fileName))
+    }
+}
+
+final class RecentsStore: ObservableObject {
+    @Published private(set) var items: [RecentItem] = []
+    private let key: String
+    private let limit: Int
+
+    init(key: String, limit: Int = 50) {
+        self.key = key
+        self.limit = limit
+        load()
+    }
+
+    private func load() {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let saved = try? JSONDecoder().decode([RecentItem].self, from: data) else { return }
+        // Tolgo le voci il cui file non esiste più
+        items = saved.filter { item in
+            if let f = item.fileName { return AppStorageFiles.exists(f) }
+            return true
+        }
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    func add(_ item: RecentItem, atFront: Bool = true) {
+        if let link = item.urlString {
+            items.removeAll { $0.urlString == link }
+        }
+        if atFront {
+            items.insert(item, at: 0)
+        } else {
+            items.append(item)
+        }
+        while items.count > limit {
+            let removed = atFront ? items.removeLast() : items.removeFirst()
+            if let f = removed.fileName { AppStorageFiles.delete(f) }
+        }
+        save()
+    }
+
+    func remove(_ item: RecentItem) {
+        items.removeAll { $0.id == item.id }
+        if let f = item.fileName { AppStorageFiles.delete(f) }
+        save()
+    }
+
+    func remove(atOffsets offsets: IndexSet) {
+        for index in offsets.sorted(by: >) where items.indices.contains(index) {
+            let removed = items.remove(at: index)
+            if let f = removed.fileName { AppStorageFiles.delete(f) }
+        }
+        save()
+    }
+
+    func clear() {
+        for item in items {
+            if let f = item.fileName { AppStorageFiles.delete(f) }
+        }
+        items = []
+        save()
+    }
+}
+
 // MARK: - Browser
 
 struct SafariWebView: UIViewRepresentable {
     let urlString: String
     @Binding var detectedVideoURL: String?
+    var onPageLoaded: (String, String) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -746,6 +858,7 @@ struct SafariWebView: UIViewRepresentable {
         config.allowsInlineMediaPlayback = false
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
         context.coordinator.lastLoaded = urlString
         load(urlString, in: webView)
@@ -753,6 +866,7 @@ struct SafariWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.parent = self
         if context.coordinator.lastLoaded != urlString {
             context.coordinator.lastLoaded = urlString
             load(urlString, in: webView)
@@ -779,6 +893,9 @@ struct SafariWebView: UIViewRepresentable {
         init(_ parent: SafariWebView) { self.parent = parent }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            if let url = webView.url?.absoluteString, url.hasPrefix("http") {
+                parent.onPageLoaded(url, webView.title ?? "")
+            }
             let js = "Array.from(document.querySelectorAll('video, source')).map(v => v.src || v.currentSrc).find(s => s && s.startsWith('http'))"
             webView.evaluateJavaScript(js) { res, _ in
                 if let videoSrc = res as? String, !videoSrc.isEmpty {
@@ -789,11 +906,53 @@ struct SafariWebView: UIViewRepresentable {
     }
 }
 
+struct BrowserHistorySheet: View {
+    @ObservedObject var store: RecentsStore
+    var onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                if store.items.isEmpty {
+                    Text("Nessuna pagina recente / No recent pages")
+                        .foregroundColor(.secondary)
+                }
+                ForEach(store.items) { item in
+                    Button {
+                        if let u = item.urlString { onSelect(u) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title).lineLimit(1).foregroundColor(.primary)
+                            Text(item.urlString ?? "").font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .onDelete { offsets in store.remove(atOffsets: offsets) }
+            }
+            .listStyle(.plain)
+            .navigationTitle("Cronologia / History")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Svuota") { store.clear() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Chiudi") { dismiss() }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+    }
+}
+
 struct WebBrowserCastView: View {
-    @State private var inputURL = "youtube.com"
-    @State private var activeURL = "youtube.com"
+    @StateObject private var history = RecentsStore(key: "recents.web", limit: 100)
+    @State private var inputURL: String = UserDefaults.standard.string(forKey: "browser.lastURL") ?? "youtube.com"
+    @State private var activeURL: String = UserDefaults.standard.string(forKey: "browser.lastURL") ?? "youtube.com"
     @State private var detectedVideoURL: String? = nil
     @State private var showFullPlayer = false
+    @State private var showHistory = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -805,6 +964,9 @@ struct WebBrowserCastView: View {
                     .onSubmit { activeURL = inputURL }
                 Button { activeURL = inputURL } label: {
                     Image(systemName: "arrow.right.circle.fill").font(.title2)
+                }
+                Button { showHistory = true } label: {
+                    Image(systemName: "clock.arrow.circlepath").font(.title2)
                 }
             }
             .padding(.horizontal).padding(.top, 8)
@@ -839,7 +1001,20 @@ struct WebBrowserCastView: View {
                 }
             }
 
-            SafariWebView(urlString: activeURL, detectedVideoURL: $detectedVideoURL)
+            SafariWebView(urlString: activeURL, detectedVideoURL: $detectedVideoURL, onPageLoaded: { url, title in
+                UserDefaults.standard.set(url, forKey: "browser.lastURL")
+                history.add(RecentItem(kind: .link,
+                                       title: title.isEmpty ? url : title,
+                                       fileName: nil,
+                                       urlString: url))
+            })
+        }
+        .sheet(isPresented: $showHistory) {
+            BrowserHistorySheet(store: history, onSelect: { url in
+                inputURL = url
+                activeURL = url
+                showHistory = false
+            })
         }
         .fullScreenCover(isPresented: $showFullPlayer) {
             if let vid = detectedVideoURL, let u = URL(string: vid) {
@@ -887,10 +1062,19 @@ struct DocumentPicker: UIViewControllerRepresentable {
 
 // MARK: - Musica
 
+final class PlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    var onFinish: () -> Void = {}
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async { self.onFinish() }
+    }
+}
+
 struct MusicPlayerView: View {
-    @State private var tracks: [URL] = []
+    @StateObject private var store = RecentsStore(key: "recents.music", limit: 300)
     @State private var currentIndex: Int = 0
     @State private var player: AVAudioPlayer?
+    @State private var playerDelegate = PlayerDelegate()
     @State private var isPlaying = false
     @State private var showFileImporter = false
     @State private var progress: Double = 0
@@ -898,9 +1082,11 @@ struct MusicPlayerView: View {
 
     let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
+    var tracks: [RecentItem] { store.items }
+
     var currentTrackName: String {
-        guard !tracks.isEmpty, tracks.indices.contains(currentIndex) else { return "Nessun brano selezionato" }
-        return tracks[currentIndex].deletingPathExtension().lastPathComponent
+        guard tracks.indices.contains(currentIndex) else { return "Nessun brano selezionato" }
+        return tracks[currentIndex].title
     }
 
     var body: some View {
@@ -978,23 +1164,36 @@ struct MusicPlayerView: View {
 
                 if !tracks.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        BilingualLabel(it: "Playlist Brani", en: "Tracklist", font: .subheadline.bold(), alignment: .leading)
-                        ForEach(tracks.indices, id: \.self) { idx in
-                            Button {
-                                currentIndex = idx
-                                playTrack(at: idx)
-                            } label: {
-                                HStack {
-                                    Image(systemName: idx == currentIndex && isPlaying ? "speaker.wave.2.fill" : "music.note")
-                                        .foregroundColor(.green)
-                                    Text(tracks[idx].lastPathComponent).lineLimit(1).font(.subheadline)
-                                    Spacer()
-                                }
-                                .padding(10)
-                                .background(Color(.systemGray6))
-                                .cornerRadius(10)
+                        HStack {
+                            BilingualLabel(it: "Playlist salvata", en: "Saved tracklist", font: .subheadline.bold(), alignment: .leading)
+                            Spacer()
+                            Button(role: .destructive) { clearAll() } label: {
+                                Text("Svuota / Clear").font(.caption.bold())
                             }
-                            .buttonStyle(.plain)
+                        }
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, item in
+                            HStack(spacing: 8) {
+                                Button {
+                                    currentIndex = idx
+                                    playTrack(at: idx)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: idx == currentIndex && isPlaying ? "speaker.wave.2.fill" : "music.note")
+                                            .foregroundColor(.green)
+                                        Text(item.title).lineLimit(1).font(.subheadline)
+                                        Spacer()
+                                    }
+                                    .padding(10)
+                                    .background(Color(.systemGray6))
+                                    .cornerRadius(10)
+                                }
+                                .buttonStyle(.plain)
+
+                                Button { removeTrack(at: idx) } label: {
+                                    Image(systemName: "trash").foregroundColor(.red).padding(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -1013,30 +1212,65 @@ struct MusicPlayerView: View {
         .onReceive(timer) { _ in
             if let p = player, p.isPlaying {
                 progress = p.currentTime
-                duration = p.duration
+                duration = max(p.duration, 1)
             }
         }
     }
 
     func addTracks(_ urls: [URL]) {
-        guard !urls.isEmpty else { return }
         let wasEmpty = tracks.isEmpty
-        tracks.append(contentsOf: urls)
-        if wasEmpty {
+        for u in urls {
+            if let name = AppStorageFiles.importFile(u) {
+                store.add(RecentItem(kind: .music,
+                                     title: u.deletingPathExtension().lastPathComponent,
+                                     fileName: name,
+                                     urlString: nil),
+                          atFront: false)
+            }
+        }
+        if wasEmpty && !tracks.isEmpty {
             currentIndex = 0
             playTrack(at: 0)
         }
     }
 
+    func removeTrack(at idx: Int) {
+        guard tracks.indices.contains(idx) else { return }
+        let item = tracks[idx]
+        if idx == currentIndex {
+            player?.stop()
+            player = nil
+            isPlaying = false
+            progress = 0
+        }
+        store.remove(item)
+        if idx < currentIndex { currentIndex -= 1 }
+        if currentIndex >= tracks.count { currentIndex = max(0, tracks.count - 1) }
+    }
+
+    func clearAll() {
+        player?.stop()
+        player = nil
+        isPlaying = false
+        progress = 0
+        currentIndex = 0
+        store.clear()
+    }
+
     func playTrack(at index: Int) {
-        guard tracks.indices.contains(index) else { return }
+        guard tracks.indices.contains(index), let file = tracks[index].fileName else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            player = try AVAudioPlayer(contentsOf: tracks[index])
-            player?.play()
+            let p = try AVAudioPlayer(contentsOf: AppStorageFiles.url(for: file))
+            playerDelegate.onFinish = {
+                if tracks.count > 1 { nextTrack() } else { isPlaying = false }
+            }
+            p.delegate = playerDelegate
+            player = p
+            p.play()
             isPlaying = true
-            duration = player?.duration ?? 1
+            duration = max(p.duration, 1)
         } catch {
             isPlaying = false
         }
@@ -1084,6 +1318,7 @@ enum GalleryPicker: Identifiable {
 }
 
 struct GalleryMediaCastView: View {
+    @StateObject private var store = RecentsStore(key: "recents.gallery", limit: 40)
     @State private var selectedVideoURL: URL?
     @State private var selectedImage: UIImage?
     @State private var picker: GalleryPicker?
@@ -1094,6 +1329,35 @@ struct GalleryMediaCastView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             showPlayer = true
         }
+    }
+
+    // Salva una copia nell'app (resta nei recenti) e prepara la riproduzione
+    private func handlePicked(videoURL: URL?, image: UIImage?, title: String) {
+        if let img = image, let name = AppStorageFiles.saveImage(img) {
+            store.add(RecentItem(kind: .image, title: title, fileName: name, urlString: nil))
+            selectedImage = img
+            selectedVideoURL = nil
+        } else if let v = videoURL, let name = AppStorageFiles.importFile(v) {
+            store.add(RecentItem(kind: .video, title: title, fileName: name, urlString: nil))
+            selectedVideoURL = AppStorageFiles.url(for: name)
+            selectedImage = nil
+        } else {
+            return
+        }
+        presentPlayerSoon()
+    }
+
+    private func open(_ item: RecentItem) {
+        guard let file = item.fileName, AppStorageFiles.exists(file) else { return }
+        let url = AppStorageFiles.url(for: file)
+        if item.kind == .image, let img = UIImage(contentsOfFile: url.path) {
+            selectedImage = img
+            selectedVideoURL = nil
+        } else {
+            selectedVideoURL = url
+            selectedImage = nil
+        }
+        showPlayer = true
     }
 
     var body: some View {
@@ -1141,16 +1405,40 @@ struct GalleryMediaCastView: View {
                 }
                 .padding(.horizontal)
 
-                if let img = selectedImage {
-                    VStack(spacing: 8) {
-                        BilingualLabel(it: "Anteprima Immagine (Tocca per schermo intero)",
-                                       en: "Image Preview (Tap for fullscreen)", font: .caption)
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 280)
-                            .cornerRadius(14)
-                            .onTapGesture { showPlayer = true }
+                if !store.items.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            BilingualLabel(it: "Recenti", en: "Recent", font: .subheadline.bold(), alignment: .leading)
+                            Spacer()
+                            Button(role: .destructive) { store.clear() } label: {
+                                Text("Svuota / Clear").font(.caption.bold())
+                            }
+                        }
+                        ForEach(store.items) { item in
+                            HStack(spacing: 8) {
+                                Button { open(item) } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: item.kind == .image ? "photo.fill" : "play.rectangle.fill")
+                                            .foregroundColor(item.kind == .image ? Color.orange : Color.red)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.title).font(.subheadline).lineLimit(1)
+                                            Text(item.date.formatted(date: .abbreviated, time: .shortened))
+                                                .font(.caption2).foregroundColor(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(10)
+                                    .background(Color(.systemGray6))
+                                    .cornerRadius(10)
+                                }
+                                .buttonStyle(.plain)
+
+                                Button { store.remove(item) } label: {
+                                    Image(systemName: "trash").foregroundColor(.red).padding(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                     .padding(.horizontal)
                 }
@@ -1160,23 +1448,22 @@ struct GalleryMediaCastView: View {
         .sheet(item: $picker) { kind in
             switch kind {
             case .photos:
-                PhotoLibraryPicker(videoURL: $selectedVideoURL, image: $selectedImage, onPicked: {
+                PhotoLibraryPicker(onPicked: { videoURL, image in
                     picker = nil
-                    presentPlayerSoon()
+                    let title = videoURL?.deletingPathExtension().lastPathComponent ?? "Foto"
+                    handlePicked(videoURL: videoURL, image: image, title: title)
                 })
             case .files:
                 DocumentPicker(contentTypes: [.movie, .video, .image],
                                onPick: { urls in
                                    picker = nil
                                    guard let url = urls.first else { return }
+                                   let title = url.deletingPathExtension().lastPathComponent
                                    if let img = UIImage(contentsOfFile: url.path) {
-                                       selectedImage = img
-                                       selectedVideoURL = nil
+                                       handlePicked(videoURL: nil, image: img, title: title)
                                    } else {
-                                       selectedVideoURL = url
-                                       selectedImage = nil
+                                       handlePicked(videoURL: url, image: nil, title: title)
                                    }
-                                   presentPlayerSoon()
                                },
                                onCancel: { picker = nil })
             }
@@ -1192,9 +1479,7 @@ struct GalleryMediaCastView: View {
 }
 
 struct PhotoLibraryPicker: UIViewControllerRepresentable {
-    @Binding var videoURL: URL?
-    @Binding var image: UIImage?
-    var onPicked: () -> Void
+    var onPicked: (URL?, UIImage?) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -1224,20 +1509,12 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
                     let temp = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
                     try? FileManager.default.removeItem(at: temp)
                     try? FileManager.default.copyItem(at: url, to: temp)
-                    DispatchQueue.main.async {
-                        self.parent.videoURL = temp
-                        self.parent.image = nil
-                        self.parent.onPicked()
-                    }
+                    DispatchQueue.main.async { self.parent.onPicked(temp, nil) }
                 }
             } else if provider.canLoadObject(ofClass: UIImage.self) {
                 provider.loadObject(ofClass: UIImage.self) { obj, _ in
                     if let img = obj as? UIImage {
-                        DispatchQueue.main.async {
-                            self.parent.image = img
-                            self.parent.videoURL = nil
-                            self.parent.onPicked()
-                        }
+                        DispatchQueue.main.async { self.parent.onPicked(nil, img) }
                     }
                 }
             }
@@ -1275,6 +1552,7 @@ struct IPTVChannel: Identifiable {
 }
 
 struct IPTVCastView: View {
+    @StateObject private var store = RecentsStore(key: "recents.iptv", limit: 60)
     @State private var iptvLink = ""
     @State private var channels: [IPTVChannel] = []
     @State private var selectedChannel: IPTVChannel?
@@ -1300,7 +1578,7 @@ struct IPTVCastView: View {
                     .disableAutocorrection(true)
 
                 HStack(spacing: 10) {
-                    Button { loadIPTVLink() } label: {
+                    Button { openLink(iptvLink) } label: {
                         HStack {
                             Image(systemName: "play.fill")
                             BilingualLabel(it: "Avvia / Carica Lista", en: "Play / Load Playlist", font: .caption.bold(), color: .white)
@@ -1322,37 +1600,61 @@ struct IPTVCastView: View {
 
             if isLoading { ProgressView("Caricamento canali / Loading...") }
 
-            if channels.isEmpty {
-                Spacer()
-                BilingualLabel(
-                    it: "Supporta link diretti (.m3u8, .ts, .mp4) e liste canali .m3u",
-                    en: "Supports direct streams (.m3u8, .ts, .mp4) and .m3u playlists",
-                    font: .footnote, color: .secondary
-                )
-                .multilineTextAlignment(.center)
-                .padding()
-                Spacer()
-            } else {
-                List(channels) { ch in
-                    Button { selectedChannel = ch } label: {
-                        HStack {
-                            Image(systemName: "tv.fill").foregroundColor(.purple)
-                            Text(ch.name).font(.subheadline).lineLimit(1)
-                            Spacer()
-                            Image(systemName: "play.circle").foregroundColor(.blue)
+            List {
+                if !channels.isEmpty {
+                    Section(header: Text("Canali / Channels")) {
+                        ForEach(channels) { ch in
+                            Button { selectedChannel = ch } label: {
+                                HStack {
+                                    Image(systemName: "tv.fill").foregroundColor(.purple)
+                                    Text(ch.name).font(.subheadline).lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "play.circle").foregroundColor(.blue)
+                                }
+                            }
                         }
                     }
                 }
-                .listStyle(.plain)
+
+                Section(header: Text("Recenti / Recent")) {
+                    if store.items.isEmpty {
+                        Text("Nessun elemento recente / No recent items")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    ForEach(store.items) { item in
+                        Button { openRecent(item) } label: {
+                            HStack {
+                                Image(systemName: item.kind == .playlist ? "doc.text.fill" : "link")
+                                    .foregroundColor(.purple)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title).font(.subheadline).lineLimit(1)
+                                    if let u = item.urlString {
+                                        Text(u).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                    .onDelete { offsets in store.remove(atOffsets: offsets) }
+                }
             }
+            .listStyle(.plain)
         }
         .sheet(isPresented: $showFileImporter) {
             DocumentPicker(contentTypes: [.data, .text],
                            onPick: { urls in
                                showFileImporter = false
-                               if let u = urls.first, let text = try? String(contentsOf: u, encoding: .utf8) {
-                                   parseM3U(text)
+                               guard let u = urls.first,
+                                     let text = try? String(contentsOf: u, encoding: .utf8) else { return }
+                               if let name = AppStorageFiles.importFile(u) {
+                                   store.add(RecentItem(kind: .playlist,
+                                                        title: u.lastPathComponent,
+                                                        fileName: name,
+                                                        urlString: nil))
                                }
+                               parseM3U(text)
                            },
                            onCancel: { showFileImporter = false })
         }
@@ -1363,11 +1665,27 @@ struct IPTVCastView: View {
         }
     }
 
-    func loadIPTVLink() {
-        let trimmed = iptvLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed) else { return }
+    func remember(link: String, title: String) {
+        store.add(RecentItem(kind: .link, title: title, fileName: nil, urlString: link))
+    }
+
+    func openRecent(_ item: RecentItem) {
+        if item.kind == .playlist, let file = item.fileName,
+           let text = try? String(contentsOf: AppStorageFiles.url(for: file), encoding: .utf8) {
+            parseM3U(text)
+        } else if let link = item.urlString {
+            iptvLink = link
+            openLink(link)
+        }
+    }
+
+    func openLink(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return }
+        let host = url.host ?? "IPTV"
         let lower = trimmed.lowercased()
         if lower.contains(".m3u8") || lower.contains(".ts") || lower.contains(".mp4") {
+            remember(link: trimmed, title: "Stream " + host)
             selectedChannel = IPTVChannel(name: "Diretta IPTV / Live Stream", url: trimmed)
             return
         }
@@ -1376,8 +1694,10 @@ struct IPTVCastView: View {
             DispatchQueue.main.async {
                 isLoading = false
                 if let data = data, let content = String(data: data, encoding: .utf8), content.contains("#EXTINF") {
+                    remember(link: trimmed, title: "Playlist " + host)
                     parseM3U(content)
                 } else {
+                    remember(link: trimmed, title: "Stream " + host)
                     selectedChannel = IPTVChannel(name: "Stream IPTV", url: trimmed)
                 }
             }
@@ -1462,7 +1782,6 @@ struct UniversalVideoPlayerSheet: View {
             }
         }
         .onAppear {
-            AppDelegate.playerOpen = true
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try? AVAudioSession.sharedInstance().setActive(true)
             let p = AVPlayer(url: url)
@@ -1472,7 +1791,6 @@ struct UniversalVideoPlayerSheet: View {
         .onDisappear {
             player?.pause()
             player = nil
-            AppDelegate.playerOpen = false
         }
     }
 }
@@ -1482,30 +1800,93 @@ struct UniversalVideoPlayerSheet: View {
 struct ContentView: View {
     @State private var ip: String? = localIPAddress()
     @State private var selectedTab = 0
+    @State private var visited: Set<Int> = [0]
     @StateObject private var networkTrigger = LocalNetworkTrigger()
     @StateObject private var remote = RemoteControlManager()
 
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeMirrorView(ip: $ip)
-                .tabItem { Label("Schermo", systemImage: "tv.and.mediabox") }
-                .tag(0)
-            WebBrowserCastView()
-                .tabItem { Label("Browser", systemImage: "safari.fill") }
-                .tag(1)
-            MusicPlayerView()
-                .tabItem { Label("Musica", systemImage: "music.note") }
-                .tag(2)
-            GalleryMediaCastView()
-                .tabItem { Label("Galleria", systemImage: "photo.on.rectangle") }
-                .tag(3)
-            IPTVCastView()
-                .tabItem { Label("IPTV", systemImage: "antenna.radiowaves.left.and.right") }
-                .tag(4)
+    private let tabs: [(title: String, icon: String)] = [
+        ("Schermo", "tv.and.mediabox"),
+        ("Browser", "safari.fill"),
+        ("Musica", "music.note"),
+        ("Galleria", "photo.on.rectangle"),
+        ("IPTV", "antenna.radiowaves.left.and.right")
+    ]
+
+    private func select(_ index: Int) {
+        selectedTab = index
+        visited.insert(index)
+    }
+
+    @ViewBuilder
+    private func tabView(_ index: Int) -> some View {
+        switch index {
+        case 0: HomeMirrorView(ip: $ip)
+        case 1: WebBrowserCastView()
+        case 2: MusicPlayerView()
+        case 3: GalleryMediaCastView()
+        default: IPTVCastView()
         }
-        .onChange(of: selectedTab) { newValue in
-            // Il browser può ruotare in orizzontale; le altre schede restano in verticale
-            AppDelegate.tabAllowsLandscape = (newValue == 1)
+    }
+
+    private var tabBar: some View {
+        HStack {
+            ForEach(0..<5, id: \.self) { i in
+                Button { select(i) } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: tabs[i].icon).font(.system(size: 20))
+                        Text(tabs[i].title).font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .foregroundColor(selectedTab == i ? Color.blue : Color.gray)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .background(Color(.systemBackground).ignoresSafeArea(edges: .bottom))
+        .overlay(Divider(), alignment: .top)
+    }
+
+    // In orizzontale la barra sparisce e resta un piccolo menu per cambiare modalità
+    private var landscapeMenu: some View {
+        Menu {
+            ForEach(0..<5, id: \.self) { i in
+                Button { select(i) } label: {
+                    Label(tabs[i].title, systemImage: tabs[i].icon)
+                }
+            }
+        } label: {
+            Image(systemName: "square.grid.2x2.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 38, height: 38)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+        .padding(.leading, 8)
+        .padding(.top, 8)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ZStack {
+                        ForEach(0..<5, id: \.self) { i in
+                            if visited.contains(i) {
+                                tabView(i)
+                                    .opacity(selectedTab == i ? 1 : 0)
+                                    .allowsHitTesting(selectedTab == i)
+                                    .zIndex(selectedTab == i ? 1 : 0)
+                            }
+                        }
+                    }
+                    if !landscape { tabBar }
+                }
+                if landscape { landscapeMenu }
+            }
         }
         .onAppear {
             ip = localIPAddress()
