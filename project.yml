@@ -17,6 +17,7 @@ targets:
       - path: .
         includes:
           - MirrorApp.swift
+          - Devices.swift
       - path: Assets.xcassets
     dependencies:
       - target: MirrorTVExt
