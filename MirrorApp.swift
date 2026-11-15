@@ -699,6 +699,8 @@ struct HomeMirrorView: View {
                     .buttonStyle(.bordered)
                 }
 
+                DevicesSection()
+
                 BilingualLabel(
                     it: "Usa le schede in basso per Browser, Musica, Galleria e IPTV.",
                     en: "Use the bottom tabs for Browser, Music, Gallery and IPTV.",
